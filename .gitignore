@@ -4,6 +4,8 @@ build/
 .env*
 !.env.example
 *.log
+*.pptx
+*.ppt
 .DS_Store
 .vscode/
 .idea/

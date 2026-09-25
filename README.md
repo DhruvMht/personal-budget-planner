@@ -7,20 +7,25 @@ All financial logic (budget allocation, goal maths, monthly totals, validation) 
 backend under `backend/utils/`. The frontend only renders values returned by the API, so any
 other client — e.g. a React Native app later — gets the same complete behaviour.
 
-## Features
+## Tech Stack
 
-- Register / login / logout with JWT, protected routes, profile GET & PUT
-- 10 default expense categories created for every new user at registration
-- Income CRUD with per-month totals
-- Expense CRUD with search and month/category filters, custom categories
-- Budget planner with priority weights (Low 1, Medium 2, High 3, Very High 4)
-- Dashboard: income, spent, remaining, saved, goal progress + Recharts charts
-- Goals with required monthly saving, % progress and expected completion date
-- Reports: pie chart, bar chart, monthly trend line, monthly table
-- In-app alerts: budget exceeded, budget nearly exhausted, goal contribution pending
-- Settings: currency, salary date, light/dark theme, profile edit
+| Layer | Technologies / Libraries |
+| :--- | :--- |
+| **Frontend** | React 18, Vite, Tailwind CSS, Recharts (Data Visualizations), Lucide React (Icons), Axios, React Router DOM |
+| **Backend** | Node.js, Express.js, JWT (`jsonwebtoken`), Password Hashing (`bcryptjs`), CORS, Dotenv |
+| **Database** | MySQL 8 / MariaDB with relational schemas, indexed foreign keys, and raw parameterized SQL (`mysql2`) |
+| **Market Data Scraper** | AMFI India Daily NAVs API (`mfapi.in`), Yahoo Finance Quotes API, CoinGecko Crypto Spot API |
+| **DevOps / Tooling** | Postman / REST Client, ESLint, Git |
 
-## Requirements
+## Key Features
+
+- **Authentication & Security:** JWT-based user authentication, bcrypt password hashing, protected API routes, and user profile management.
+- **Income & Cash Flow Tracking:** Track primary salaries, freelance income, and secondary cash flows with monthly categorization.
+- **Fixed Commitments & Bill Calendar:** Schedule recurring bills (rent, EMIs, insurance, internet) with status toggles and overdue alerts.
+- **Variable Expenses & Smart Budget Limits:** Visual category progress bars, budget allocation algorithm based on priority weights (Low 1, Medium 2, High 3, Very High 4).
+- **Automated Multi-Asset Investment Portfolio:** 1-click live market price scraping for Mutual Funds/SIPs (AMFI NAVs), Indian & Global Equities (Yahoo Finance), Gold/SGB, Crypto (CoinGecko), PPF, EPF, and FDs.
+- **Interactive Analytics & Reporting:** Monthly visual trends, expense-to-income breakdown, asset allocation pie charts, savings rate, and exportable financial summaries.
+- **Modern Responsive UI:** Dark and light mode themes, skeleton loaders, and animated counter metrics.
 
 - Node.js 18+
 - MySQL 8 (or MariaDB 10.6+) running locally
@@ -31,7 +36,7 @@ other client — e.g. a React Native app later — gets the same complete behavi
 # create schema (creates the budget_planner database and all tables)
 mysql -u root -p < database/schema.sql
 
-# OPTIONAL: development-only sample data (demo@example.com / password123)
+# OPTIONAL: sample starter data
 mysql -u root -p budget_planner < database/seed.sql
 ```
 

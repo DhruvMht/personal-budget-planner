@@ -21,7 +21,34 @@ export function formatMonth(month) {
 }
 
 export function currentMonth() {
-  return new Date().toISOString().slice(0, 7);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+export function getPrevMonth(month) {
+  if (!month) return currentMonth();
+  const [y, m] = month.split("-").map(Number);
+  let newYear = y;
+  let newMonth = m - 1;
+  if (newMonth < 1) {
+    newMonth = 12;
+    newYear -= 1;
+  }
+  return `${newYear}-${String(newMonth).padStart(2, "0")}`;
+}
+
+export function getNextMonth(month) {
+  if (!month) return currentMonth();
+  const [y, m] = month.split("-").map(Number);
+  let newYear = y;
+  let newMonth = m + 1;
+  if (newMonth > 12) {
+    newMonth = 1;
+    newYear += 1;
+  }
+  return `${newYear}-${String(newMonth).padStart(2, "0")}`;
 }
 
 export function formatDate(value) {
@@ -33,7 +60,11 @@ export function formatDate(value) {
 export function toDateInput(value) {
   if (!value) return "";
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value).slice(0, 10) : d.toISOString().slice(0, 10);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export const CURRENCIES = Object.keys(LOCALES);
