@@ -1,7 +1,23 @@
 import axios from "axios";
 
+function getBaseUrl() {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  if (typeof window !== "undefined") {
+    const { protocol, hostname, port } = window.location;
+    if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+      if (port === "5000" || port === "80" || port === "" || port === "443") {
+        return `${protocol}//${hostname}${port ? ":" + port : ""}/api`;
+      }
+      return `${protocol}//${hostname}:5000/api`;
+    }
+  }
+  return "http://localhost:5000/api";
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
+  baseURL: getBaseUrl(),
   headers: { "Content-Type": "application/json" },
 });
 

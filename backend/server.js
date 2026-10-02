@@ -1,3 +1,5 @@
+const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const env = require("./config/env");
@@ -6,10 +8,13 @@ const { notFound, errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
 
-// CORS: allow the local Vite frontend origin, read from an env var.
+// CORS: allow cloud IPs, localhost, domains or permissive for API
 app.use(
   cors({
-    origin: env.clientOrigin.split(",").map((o) => o.trim()),
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile, curl, same-origin) or any remote origin
+      callback(null, true);
+    },
     credentials: true,
   })
 );
@@ -27,6 +32,16 @@ app.use("/api/investments", require("./routes/investmentRoutes"));
 app.use("/api/calendar", require("./routes/billCalendarRoutes"));
 app.use("/api/reports", require("./routes/reportRoutes"));
 
+// Serve Frontend static production build if available
+const distPath = path.join(__dirname, "../frontend/dist");
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api")) return next();
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
+
 app.use(notFound);
 app.use(errorHandler);
 
@@ -38,9 +53,9 @@ async function start() {
     console.error("[db] Could not connect to MySQL:", err.message);
     console.error("[db] Check backend/.env and that MySQL is running.");
   }
-  app.listen(env.port, () => {
-    console.log(`[server] API listening on http://localhost:${env.port}`);
-    console.log(`[server] CORS origin: ${env.clientOrigin}`);
+  app.listen(env.port, "0.0.0.0", () => {
+    console.log(`[server] API listening on port ${env.port} (0.0.0.0)`);
+    console.log(`[server] Ready for incoming cloud connections.`);
   });
 }
 
