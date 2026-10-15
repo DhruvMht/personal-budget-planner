@@ -1,5 +1,3 @@
-const path = require("path");
-const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const env = require("./config/env");
@@ -19,6 +17,14 @@ app.use(
   })
 );
 app.use(express.json());
+app.use("/api", require("./middleware/validateSchema").commonFilters);
+
+app.get("/", (req, res) => res.json({
+  service: "Budget Planner API",
+  status: "ok",
+  frontend: "http://localhost:5173",
+  health: "/api/health",
+}));
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
 
@@ -31,16 +37,7 @@ app.use("/api/goals", require("./routes/goalRoutes"));
 app.use("/api/investments", require("./routes/investmentRoutes"));
 app.use("/api/calendar", require("./routes/billCalendarRoutes"));
 app.use("/api/reports", require("./routes/reportRoutes"));
-
-// Serve Frontend static production build if available
-const distPath = path.join(__dirname, "../frontend/dist");
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api")) return next();
-    res.sendFile(path.join(distPath, "index.html"));
-  });
-}
+app.use("/api/validation", require("./routes/validationRoutes"));
 
 app.use(notFound);
 app.use(errorHandler);

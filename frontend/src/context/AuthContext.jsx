@@ -1,5 +1,6 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import authService from "../services/authService";
+import { getErrorMessage } from "../services/api";
 
 export const AuthContext = createContext(null);
 
@@ -16,6 +17,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(readStoredUser);
   const [token, setToken] = useState(() => localStorage.getItem("bp_token"));
   const [loading, setLoading] = useState(Boolean(localStorage.getItem("bp_token")));
+  const [sessionError, setSessionError] = useState("");
 
   const persist = useCallback((nextUser, nextToken) => {
     if (nextToken) {
@@ -42,8 +44,12 @@ export function AuthProvider({ children }) {
         setUser(data.user);
         localStorage.setItem("bp_user", JSON.stringify(data.user));
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
+        if (error.response?.status !== 401) {
+          setSessionError(getErrorMessage(error));
+          return;
+        }
         localStorage.removeItem("bp_token");
         localStorage.removeItem("bp_user");
         setUser(null);
@@ -101,6 +107,7 @@ export function AuthProvider({ children }) {
       user,
       token,
       loading,
+      sessionError,
       isAuthenticated: Boolean(token && user),
       currency: user?.currency || "INR",
       login,
@@ -108,7 +115,7 @@ export function AuthProvider({ children }) {
       logout,
       updateUser,
     }),
-    [user, token, loading, login, register, logout, updateUser]
+    [user, token, loading, sessionError, login, register, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

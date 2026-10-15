@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   TrendingUp,
   Plus,
@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Zap,
   CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Cell,
@@ -40,6 +41,9 @@ import {
 } from "../utils/formatCurrency";
 import Button from "../components/common/Button";
 import Input from "../components/common/Input";
+import InvestmentPicker from "../components/common/InvestmentPicker";
+import InvestmentAmounts from "../components/common/InvestmentAmounts";
+import InvestmentPriceDetails from "../components/common/InvestmentPriceDetails";
 import Modal from "../components/common/Modal";
 import EmptyState from "../components/common/EmptyState";
 import CountUp from "../components/common/CountUp";
@@ -86,26 +90,31 @@ export default function Investments() {
 
   // Live Market Price Sync states
   const [syncingAll, setSyncingAll] = useState(false);
-  const [syncingId, setSyncingId] = useState(null);
   const [syncFeedback, setSyncFeedback] = useState(null);
+  const [priceConnectionFailed, setPriceConnectionFailed] = useState(false);
+  const syncBusy = useRef(false);
+  const loadSequence = useRef(0);
 
   // Modals
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [trackMarket, setTrackMarket] = useState(true);
+  const [selectedInstrument, setSelectedInstrument] = useState(null);
+  const [calculationBlocked, setCalculationBlocked] = useState(false);
   const [form, setForm] = useState({
     name: "",
     type: "Mutual Funds / SIP",
     amount: "",
-    current_value: "",
     date: toDateInput(new Date()),
     notes: "",
+    units: "",
   });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const loadData = useCallback(async (quiet = false) => {
+    const sequence = ++loadSequence.current;
+    if (!quiet) { setLoading(true); setError(""); }
     try {
       const filters = {};
       if (month) filters.month = month;
@@ -116,12 +125,13 @@ export default function Investments() {
         investmentService.list(filters),
         investmentService.summary(month),
       ]);
+      if (sequence !== loadSequence.current) return;
       setData(listRes);
       setSummary(sumRes);
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (sequence === loadSequence.current) setError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, [month, selectedType, search]);
 
@@ -131,13 +141,16 @@ export default function Investments() {
 
   function openCreate() {
     setEditing(null);
+    setTrackMarket(currency === "INR");
+    setSelectedInstrument(null);
+    setCalculationBlocked(false);
     setForm({
       name: "",
       type: "Mutual Funds / SIP",
       amount: "",
-      current_value: "",
       date: toDateInput(new Date()),
       notes: "",
+      units: "",
     });
     setFormError("");
     setModalOpen(true);
@@ -145,19 +158,29 @@ export default function Investments() {
 
   function openEdit(item) {
     setEditing(item);
+    setCalculationBlocked(false);
+    setTrackMarket(currency === "INR");
+    setSelectedInstrument(currency === "INR" && ["Stocks / Equities", "Mutual Funds / SIP"].includes(item.type) && !item.instrument_id ? null : {
+      name: item.name, provider: item.market_provider, instrument_id: item.instrument_id,
+    });
     setForm({
       name: item.name,
       type: item.type,
       amount: String(item.amount),
-      current_value: String(item.current_value || item.amount),
       date: toDateInput(item.date),
       notes: item.notes || "",
+      units: item.units ? String(item.units) : "",
     });
     setFormError("");
     setModalOpen(true);
   }
 
   async function handleSave() {
+    if (calculationBlocked) return setFormError("Wait for the calculation, or enter a valid purchase price.");
+    const linked = trackMarket && ["Mutual Funds / SIP", "Stocks / Equities"].includes(form.type);
+    if (linked && !selectedInstrument?.instrument_id) return setFormError("Choose the exact stock or mutual fund from the search results.");
+    if (!selectedInstrument) return setFormError("Choose a search suggestion or confirm a manual investment name.");
+    if (linked && !(Number(form.units) > 0)) return setFormError("Enter the number of shares or units you own.");
     if (!form.name.trim()) return setFormError("Please enter an investment name");
     if (!(Number(form.amount) > 0)) return setFormError("Amount must be greater than zero");
 
@@ -168,9 +191,11 @@ export default function Investments() {
         name: form.name.trim(),
         type: form.type,
         amount: Number(form.amount),
-        current_value: form.current_value ? Number(form.current_value) : Number(form.amount),
         date: form.date,
         notes: form.notes,
+        market_provider: linked ? selectedInstrument.provider : null,
+        instrument_id: linked ? selectedInstrument.instrument_id : null,
+        units: form.units ? Number(form.units) : null,
       };
 
       if (editing) {
@@ -198,40 +223,28 @@ export default function Investments() {
   }
 
   async function handleSyncAll() {
+    if (syncBusy.current) return;
+    syncBusy.current = true;
     setSyncingAll(true);
     setSyncFeedback(null);
     setError("");
     try {
-      const res = await investmentService.syncPrices(month);
+      const res = await investmentService.syncPrices();
+      setPriceConnectionFailed(false);
       setSyncFeedback({
-        message: res.message || "Market prices synchronized successfully!",
+        portfolio: res.portfolio,
+        message: res.updated_count ? `Live value and ROI updated for ${res.updated_count} investment(s).` : "No values or ROI were updated. Previous valuations are unchanged.",
         updated_count: res.updated_count || 0,
         updated: res.updated || [],
+        skipped: res.skipped || [],
       });
       await loadData();
-      setTimeout(() => setSyncFeedback(null), 8000);
     } catch (err) {
       setError(getErrorMessage(err));
+      if (!err.response) setPriceConnectionFailed(true);
     } finally {
+      syncBusy.current = false;
       setSyncingAll(false);
-    }
-  }
-
-  async function handleSyncSingle(item) {
-    setSyncingId(item.id);
-    setError("");
-    try {
-      const res = await investmentService.syncSinglePrice(item.id);
-      setSyncFeedback({
-        message: res.message || `Updated price for ${item.name}`,
-        source: res.source,
-      });
-      await loadData();
-      setTimeout(() => setSyncFeedback(null), 6000);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setSyncingId(null);
     }
   }
 
@@ -278,18 +291,30 @@ export default function Investments() {
           <button
             type="button"
             onClick={handleSyncAll}
-            disabled={syncingAll || loading}
-            title="Auto-scrap live NAVs from AMFI India, Yahoo Finance & CoinGecko"
+            disabled={syncingAll || loading || currency !== "INR"}
+            aria-describedby="live-roi-requirements"
+            title="Update every investment in your portfolio using the latest available prices"
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/80 px-3.5 py-2 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100/90 active:scale-95 disabled:opacity-60 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${syncingAll ? "animate-spin text-emerald-600 dark:text-emerald-400" : "text-emerald-600 dark:text-emerald-400"}`} />
-            <span>{syncingAll ? "Scraping Live Prices..." : "⚡ Auto-Sync Market Prices"}</span>
+            <span>{syncingAll ? "Updating portfolio…" : "Update all live values & ROI"}</span>
           </button>
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4" />
             <span>Add Investment</span>
           </Button>
         </div>
+      </div>
+
+      <div className="card space-y-2 p-4 text-xs text-slate-500 dark:text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Live valuation & ROI</h2>
+            <p className="mt-1">One click checks your entire portfolio, fetches available market prices, and updates values and ROI across all purchase months.</p>
+          </div>
+        </div>
+        <p id="live-roi-requirements">{currency !== "INR" ? "Live valuation requires an INR portfolio." : "Stocks and mutual funds use their market prices. Anything without a supported price or sufficient details keeps its saved value, with the reason shown after the update. Filters do not limit this action."}</p>
+        <p>Returns show unrealized gain or loss against your saved purchase cost, excluding fees, taxes and dividends.</p>
       </div>
 
       {error && (
@@ -299,12 +324,17 @@ export default function Investments() {
       )}
 
       {syncFeedback && (
-        <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-medium text-emerald-800 shadow-sm animate-fade-in-up dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+        <div role="status" aria-label="Live valuation result" className={`flex items-start justify-between rounded-xl border p-4 text-xs font-medium shadow-sm animate-fade-in-up ${syncFeedback.skipped?.length ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200" : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200"}`}>
+          <div className="flex min-w-0 items-start gap-2.5 break-words">
+            {syncFeedback.skipped?.length ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />}
             <span>
-              <strong>Market Sync:</strong> {syncFeedback.message}
+              <strong>Live valuation:</strong> {syncFeedback.message}
+              {syncFeedback.portfolio && <span className="mt-2 block font-semibold">Whole portfolio: {formatCurrency(syncFeedback.portfolio.current_value, currency)} · Profit / loss {formatCurrency(syncFeedback.portfolio.total_gain, currency)} · ROI {Number(syncFeedback.portfolio.gain_percent).toFixed(2)}%{syncFeedback.skipped?.length > 0 ? " (includes unchanged valuations)" : ""}</span>}
               {syncFeedback.source ? ` (${syncFeedback.source})` : ""}
+              {syncFeedback.updated?.map(item => <span key={item.id} className="mt-1 block">{item.name}: {formatCurrency(item.new_value, currency)} · ROI {Number(item.roi_percent).toFixed(2)}%</span>)}
+              {syncFeedback.skipped?.length > 0 && (
+                <span className="mt-2 block text-amber-800 dark:text-amber-300">Unchanged:{syncFeedback.skipped.map(item => <span key={item.id} className="mt-1 block">{item.name}: {item.reason}</span>)}</span>
+              )}
             </span>
           </div>
           <button
@@ -596,16 +626,18 @@ export default function Investments() {
               {data.investments.map((inv) => {
                 const Icon = getAssetIcon(inv.type);
                 const color = ASSET_COLORS[inv.type] || "#64748b";
-                const gain = Number(inv.current_value || inv.amount) - Number(inv.amount);
+                const gain = Number(inv.current_value ?? inv.amount) - Number(inv.amount);
                 const gainPercent =
                   Number(inv.amount) > 0 ? (gain / Number(inv.amount)) * 100 : 0;
 
                 return (
                   <div
                     key={inv.id}
+                    role="group"
+                    aria-label={`Investment ${inv.name}`}
                     className="flex flex-wrap items-center justify-between gap-4 py-3.5 px-2 rounded-xl transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
                   >
-                    <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="flex max-w-full items-center gap-3.5 min-w-0">
                       <div
                         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm"
                         style={{ backgroundColor: color }}
@@ -613,7 +645,7 @@ export default function Investments() {
                         <Icon className="h-5 w-5" />
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-sm font-bold text-slate-900 dark:text-white">
                             {inv.name}
                           </p>
@@ -621,14 +653,20 @@ export default function Investments() {
                             {inv.type}
                           </span>
                         </div>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
                           <span>{formatDate(inv.date)}</span>
+                          {inv.instrument_id ? (
+                            <span className="text-emerald-600 dark:text-emerald-400">{inv.instrument_id} · {Number(inv.units)} {inv.type === "Stocks / Equities" ? "shares" : "units"}</span>
+                          ) : ["Mutual Funds / SIP", "Stocks / Equities"].includes(inv.type) && (
+                            <span>Market details will be checked when you update the portfolio</span>
+                          )}
                           {inv.notes && <span>• {inv.notes}</span>}
                         </div>
+                        <InvestmentPriceDetails investment={inv} connectionFailed={priceConnectionFailed} currency={currency} />
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-6">
+                    <div className="flex max-w-full flex-wrap items-center gap-4 sm:gap-6">
                       <div className="text-right">
                         <p className="text-xs text-slate-400">Invested Amount</p>
                         <p className="text-sm font-bold tabular-nums text-slate-900 dark:text-white">
@@ -639,9 +677,9 @@ export default function Investments() {
                       <div className="text-right">
                         <p className="text-xs text-slate-400">Current Valuation</p>
                         <p className="text-sm font-bold tabular-nums text-brand-600 dark:text-brand-400">
-                          {formatCurrency(inv.current_value || inv.amount, currency)}
+                          {formatCurrency(inv.current_value ?? inv.amount, currency)}
                         </p>
-                        {gain !== 0 && (
+                        {(
                           <span
                             className={`text-[10px] font-semibold ${
                               gain >= 0
@@ -650,20 +688,12 @@ export default function Investments() {
                             }`}
                           >
                             {gain >= 0 ? "+" : ""}
-                            {gainPercent.toFixed(1)}%
+                            {formatCurrency(gain, currency)} ({gainPercent.toFixed(2)}%) ROI
                           </span>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleSyncSingle(inv)}
-                          disabled={syncingId === inv.id}
-                          title="Auto-sync live market price"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-700 active:scale-95 disabled:opacity-60 dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-950/50"
-                        >
-                          <RefreshCw className={`h-3.5 w-3.5 ${syncingId === inv.id ? "animate-spin text-emerald-600 dark:text-emerald-400" : ""}`} />
-                        </button>
+                      <div className="flex max-w-full flex-wrap items-center gap-1.5">
                         <button
                           onClick={() => openEdit(inv)}
                           title="Edit investment"
@@ -699,7 +729,7 @@ export default function Investments() {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave} loading={saving}>
+            <Button onClick={handleSave} loading={saving} disabled={calculationBlocked}>
               {editing ? "Update Investment" : "Save Investment"}
             </Button>
           </>
@@ -712,16 +742,16 @@ export default function Investments() {
             </p>
           )}
           <Input
-            label="Investment Name"
-            placeholder="e.g. HDFC Index Fund, Nifty 50 ETF, Sovereign Gold Bond"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <Input
             as="select"
+            id="investment-asset-class"
             label="Asset Class / Option"
             value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, type: e.target.value, name: "", units: "" });
+              setSelectedInstrument(null);
+              setTrackMarket(currency === "INR");
+              setFormError("");
+            }}
           >
             {Object.keys(ASSET_COLORS).map((t) => (
               <option key={t} value={t}>
@@ -729,34 +759,26 @@ export default function Investments() {
               </option>
             ))}
           </Input>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input
-              label="Invested Amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              placeholder="0.00"
-            />
-            <Input
-              label="Current Valuation (Optional)"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.current_value}
-              onChange={(e) => setForm({ ...form, current_value: e.target.value })}
-              placeholder="Defaults to invested amount"
-            />
-          </div>
+          <InvestmentPicker key={`picker:${editing?.id || "new"}:${form.type}:${trackMarket}`} type={form.type} selection={selectedInstrument}
+              allowManual={!trackMarket || !["Mutual Funds / SIP", "Stocks / Equities"].includes(form.type)} onChange={(instrument) => {
+                setSelectedInstrument(instrument);
+                setForm(previous => ({ ...previous, name: instrument?.name || "" }));
+                setFormError("");
+              }} />
+          <InvestmentAmounts key={`amounts:${editing?.id || "new"}:${form.type}:${trackMarket}`}
+            form={form} setForm={setForm} editing={editing} selection={selectedInstrument}
+            linked={trackMarket && ["Mutual Funds / SIP", "Stocks / Equities"].includes(form.type)}
+            onCalculationState={setCalculationBlocked} />
           <Input
+            id="investment-date"
             label="Investment Date"
             type="date"
             value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
           />
           <Input
-            label="Notes / Folio / Ticker (Optional)"
+            id="investment-notes"
+            label="Notes / Folio (Optional)"
             placeholder="e.g. Folio #12345, SIP date 5th, Demat account"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}

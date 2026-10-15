@@ -1,4 +1,5 @@
 const { pool } = require("../config/db");
+const { metadataOf } = require("../utils/investmentPriceStatus");
 
 const INVESTMENT_TYPES = [
   "Mutual Funds / SIP",
@@ -32,30 +33,30 @@ const Investment = {
     }
 
     const [rows] = await pool.execute(
-      `SELECT id, user_id, name, type, amount, current_value, date, month, notes
+      `SELECT id, user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, reminder_id, price_metadata
        FROM Investments
        WHERE ${conditions.join(" AND ")}
        ORDER BY date DESC, id DESC`,
       params
     );
-    return rows;
+    return rows.map(row => ({ ...row, price_metadata: metadataOf(row) }));
   },
 
-  async findById(id, userId) {
-    const [rows] = await pool.execute(
-      `SELECT id, user_id, name, type, amount, current_value, date, month, notes
+  async findById(id, userId, connection = pool) {
+    const [rows] = await connection.execute(
+      `SELECT id, user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, price_metadata
        FROM Investments
        WHERE id = ? AND user_id = ? LIMIT 1`,
       [id, userId]
     );
-    return rows[0] || null;
+    return rows[0] ? { ...rows[0], price_metadata: metadataOf(rows[0]) } : null;
   },
 
-  async create(userId, { name, type, amount, current_value, date, month, notes }) {
+  async create(userId, { name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, price_metadata = null, reminder_id = null }, connection = pool) {
     const m = month || String(date).slice(0, 7);
-    const [res] = await pool.execute(
-      `INSERT INTO Investments (user_id, name, type, amount, current_value, date, month, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    const [res] = await connection.execute(
+      `INSERT INTO Investments (user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, reminder_id, price_metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         name,
@@ -67,16 +68,21 @@ const Investment = {
         date,
         m,
         notes || null,
+        market_provider || null,
+        instrument_id || null,
+        units ?? null,
+        reminder_id,
+        price_metadata ? JSON.stringify(price_metadata) : null,
       ]
     );
-    return Investment.findById(res.insertId, userId);
+    return Investment.findById(res.insertId, userId, connection);
   },
 
-  async update(id, userId, { name, type, amount, current_value, date, month, notes }) {
+  async update(id, userId, { name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, price_metadata = null }) {
     const m = month || String(date).slice(0, 7);
     await pool.execute(
       `UPDATE Investments
-       SET name = ?, type = ?, amount = ?, current_value = ?, date = ?, month = ?, notes = ?
+       SET name = ?, type = ?, amount = ?, current_value = ?, date = ?, month = ?, notes = ?, market_provider = ?, instrument_id = ?, units = ?, price_metadata = ?
        WHERE id = ? AND user_id = ?`,
       [
         name,
@@ -88,6 +94,10 @@ const Investment = {
         date,
         m,
         notes || null,
+        market_provider || null,
+        instrument_id || null,
+        units ?? null,
+        price_metadata ? JSON.stringify(price_metadata) : null,
         id,
         userId,
       ]
@@ -102,6 +112,26 @@ const Investment = {
       [Math.round(num * 100) / 100, id, userId]
     );
     return Investment.findById(id, userId);
+  },
+
+  // Guard against an edit/delete that happens while the provider request is pending.
+  // Preserve cost and quantity; older entries may acquire an exact provider identity.
+  async saveMarketPrice(item, currentValue, metadata, instrument = { provider: item.market_provider, instrument_id: item.instrument_id }) {
+    const [result] = await pool.execute(
+      `UPDATE Investments SET current_value = ?, price_metadata = ?, market_provider = ?, instrument_id = ?
+       WHERE id = ? AND user_id = ? AND market_provider <=> ? AND instrument_id <=> ? AND units = ? AND name = ? AND type = ?`,
+      [currentValue, JSON.stringify(metadata), instrument.provider, instrument.instrument_id,
+        item.id, item.user_id, item.market_provider, item.instrument_id, item.units, item.name, item.type]
+    );
+    return result.affectedRows > 0;
+  },
+
+  async recordPriceFailure(item, message) {
+    await pool.execute(
+      `UPDATE Investments SET price_metadata = JSON_SET(COALESCE(price_metadata, JSON_OBJECT()), '$.error', ?, '$.last_attempt_at', ?)
+       WHERE id = ? AND user_id = ? AND market_provider = ? AND instrument_id = ? AND units = ?`,
+      [message.slice(0, 300), new Date().toISOString(), item.id, item.user_id, item.market_provider, item.instrument_id, item.units]
+    );
   },
 
   async remove(id, userId) {

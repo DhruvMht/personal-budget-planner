@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 export default function Input({
   label,
   error,
@@ -8,7 +10,8 @@ export default function Input({
   children,
   ...props
 }) {
-  const inputId = id || props.name;
+  const generatedId = useId();
+  const inputId = id || props.name || generatedId;
   const Tag = as;
   return (
     <div className={`space-y-1.5 ${className}`}>

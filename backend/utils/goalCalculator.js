@@ -1,4 +1,10 @@
 const { round2, priorityWeight } = require("./budgetCalculator");
+const { allocateMoney } = require("./allocateMoney");
+
+function calendarDate(value) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 
 function monthsBetween(from, to) {
   // Normalize dates to start-of-day for consistent calculation
@@ -33,18 +39,21 @@ function computeGoal(goal, monthlySavingCapacity = 0, today = new Date()) {
   let expected_completion_date = null;
   let months_at_current_rate = null;
   if (remaining === 0) {
-    expected_completion_date = new Date(today).toISOString().slice(0, 10);
+    expected_completion_date = calendarDate(today);
     months_at_current_rate = 0;
   } else if (capacity > 0) {
     months_at_current_rate = Math.ceil(remaining / capacity);
     const d = new Date(today);
+    const day = d.getDate();
+    d.setDate(1);
     d.setMonth(d.getMonth() + months_at_current_rate);
-    expected_completion_date = d.toISOString().slice(0, 10);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+    expected_completion_date = calendarDate(d);
   }
 
   const on_track =
     remaining === 0 ||
-    (monthsLeft !== null && capacity > 0 && months_at_current_rate <= Math.max(monthsLeft, 1));
+    (monthsLeft !== null && String(goal.deadline).slice(0, 10) >= calendarDate(today) && capacity > 0 && months_at_current_rate <= Math.max(monthsLeft, 1));
 
   return {
     ...goal,
@@ -65,16 +74,8 @@ function computeGoal(goal, monthlySavingCapacity = 0, today = new Date()) {
 /** Splits a monthly saving capacity across goals by priority weight. */
 function suggestContributions(goals, monthlySavingCapacity) {
   const capacity = Math.max(0, Number(monthlySavingCapacity) || 0);
-  const active = goals.filter((g) => Number(g.saved_amount) < Number(g.target_amount));
-  const weightSum = active.reduce((s, g) => s + priorityWeight(g.priority), 0);
-  return goals.map((g) => {
-    const isActive = active.some((a) => a.id === g.id);
-    const suggested =
-      isActive && weightSum > 0
-        ? round2((capacity * priorityWeight(g.priority)) / weightSum)
-        : 0;
-    return { goal_id: g.id, suggested_contribution: suggested };
-  });
+  const amounts = allocateMoney(capacity, goals.map(g => ({ weight: priorityWeight(g.priority), cap: Math.max(0, Number(g.target_amount) - Number(g.saved_amount)) })));
+  return goals.map((g, index) => ({ goal_id: g.id, suggested_contribution: amounts[index] }));
 }
 
 module.exports = { computeGoal, suggestContributions, monthsBetween };

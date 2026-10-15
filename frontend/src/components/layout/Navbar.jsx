@@ -2,18 +2,23 @@ import { Link } from "react-router-dom";
 import { Menu, Sun, Moon, LogOut, ShieldCheck } from "lucide-react";
 import useAuth from "../../hooks/useAuth";
 import Button from "../common/Button";
+import { useState } from "react";
+import authService from "../../services/authService";
+import { getErrorMessage } from "../../services/api";
 
 export default function Navbar({ onToggleSidebar, sidebarOpen }) {
   const { user, logout, currency, updateUser } = useAuth();
+  const [savingTheme, setSavingTheme] = useState(false);
+  const [themeError, setThemeError] = useState("");
 
-  const isDarkMode = user?.theme === "dark" || document.documentElement.classList.contains("dark");
+  const isDarkMode = user?.theme === "dark";
 
-  const toggleTheme = () => {
+  const toggleTheme = async () => {
     const nextTheme = isDarkMode ? "light" : "dark";
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    if (user) {
-      updateUser({ ...user, theme: nextTheme });
-    }
+    setSavingTheme(true); setThemeError("");
+    try { const data = await authService.updateProfile({ theme: nextTheme }); updateUser(data.user); }
+    catch (error) { setThemeError(getErrorMessage(error)); }
+    finally { setSavingTheme(false); }
   };
 
   return (
@@ -23,6 +28,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
           onClick={onToggleSidebar}
           className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 md:hidden"
           aria-label="Toggle navigation"
+          aria-expanded={sidebarOpen}
         >
           <Menu className="h-5 w-5" strokeWidth={2} />
         </button>
@@ -48,6 +54,7 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
           type="button"
           onClick={toggleTheme}
           aria-label="Toggle theme"
+          disabled={savingTheme}
           className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 active:scale-95 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           {isDarkMode ? (
@@ -72,12 +79,14 @@ export default function Navbar({ onToggleSidebar, sidebarOpen }) {
           variant="secondary"
           size="sm"
           onClick={logout}
+          aria-label="Logout"
           className="ml-1 text-xs"
         >
           <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
           <span className="hidden sm:inline">Logout</span>
         </Button>
       </div>
+      {themeError && <p role="alert" className="absolute right-4 top-full rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{themeError}</p>}
     </header>
   );
 }

@@ -68,7 +68,7 @@ async function update(req, res, next) {
     if (saved_amount > target_amount)
       return res.status(400).json({ message: "Saved amount cannot exceed the target amount" });
 
-    const deadlineInput = req.body.deadline ?? current.deadline;
+    const deadlineInput = req.body.deadline !== undefined ? req.body.deadline : current.deadline;
     const goal = await Goal.update(req.params.id, req.user.id, {
       goal_name: (req.body.goal_name ?? current.goal_name).trim(),
       target_amount,
@@ -88,6 +88,7 @@ async function contribute(req, res, next) {
     if (!current) return res.status(404).json({ message: "Goal not found" });
 
     const goal = await Goal.addContribution(req.params.id, req.user.id, amount);
+    if (!goal) return res.status(400).json({ message: "Incorrect value: contribution exceeds the remaining goal amount." });
     const capacity = await savingCapacity(req.user.id, currentMonth());
     res.json({ goal: computeGoal(goal, capacity) });
   } catch (err) { next(err); }

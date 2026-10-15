@@ -22,8 +22,12 @@ async function update(req, res, next) {
   try {
     const current = await ExpenseCategory.findById(req.params.id, req.user.id);
     if (!current) return res.status(404).json({ message: "Category not found" });
+    const name = (req.body.name ?? current.name).trim();
+    const existing = await ExpenseCategory.findAllByUser(req.user.id);
+    if (existing.some(c => c.id !== current.id && c.name.toLowerCase() === name.toLowerCase()))
+      return res.status(409).json({ message: "A category with that name already exists" });
     const category = await ExpenseCategory.update(req.params.id, req.user.id, {
-      name: (req.body.name ?? current.name).trim(),
+      name,
       type: req.body.type ?? current.type,
     });
     res.json({ category });

@@ -2,7 +2,7 @@ const { pool } = require("../config/db");
 
 const Expense = {
   async findAllByUser(userId, { month, categoryId, search } = {}) {
-    let sql = `SELECT e.id, e.user_id, e.category_id, e.amount, e.date, e.description,
+    let sql = `SELECT e.id, e.user_id, e.category_id, e.amount, e.date, e.description, e.reminder_id,
                       c.name AS category_name, c.type AS category_type
                FROM Expenses e
                LEFT JOIN ExpenseCategory c ON c.id = e.category_id
@@ -25,9 +25,9 @@ const Expense = {
     return rows;
   },
 
-  async findById(id, userId) {
-    const [rows] = await pool.execute(
-      `SELECT e.id, e.user_id, e.category_id, e.amount, e.date, e.description,
+  async findById(id, userId, connection = pool) {
+    const [rows] = await connection.execute(
+      `SELECT e.id, e.user_id, e.category_id, e.amount, e.date, e.description, e.reminder_id,
               c.name AS category_name, c.type AS category_type
        FROM Expenses e LEFT JOIN ExpenseCategory c ON c.id = e.category_id
        WHERE e.id = ? AND e.user_id = ? LIMIT 1`,
@@ -36,12 +36,12 @@ const Expense = {
     return rows[0] || null;
   },
 
-  async create(userId, { category_id, amount, date, description }) {
-    const [res] = await pool.execute(
-      "INSERT INTO Expenses (user_id, category_id, amount, date, description) VALUES (?, ?, ?, ?, ?)",
-      [userId, category_id, amount, date, description || null]
+  async create(userId, { category_id, amount, date, description, reminder_id = null }, connection = pool) {
+    const [res] = await connection.execute(
+      "INSERT INTO Expenses (user_id, category_id, amount, date, description, reminder_id) VALUES (?, ?, ?, ?, ?, ?)",
+      [userId, category_id, amount, date, description || null, reminder_id]
     );
-    return Expense.findById(res.insertId, userId);
+    return Expense.findById(res.insertId, userId, connection);
   },
 
   async update(id, userId, { category_id, amount, date, description }) {
@@ -88,6 +88,11 @@ const Expense = {
       [userId, Number(limit)]
     );
     return rows.reverse();
+  },
+
+  async allTimeTotal(userId) {
+    const [rows] = await pool.execute("SELECT COALESCE(SUM(amount), 0) AS total FROM Expenses WHERE user_id = ?", [userId]);
+    return Number(rows[0].total);
   },
 };
 

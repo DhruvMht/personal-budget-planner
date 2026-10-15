@@ -73,6 +73,7 @@ export default function Expenses() {
   }, [load]);
 
   const variableCategories = categories.filter((c) => c.type === "variable");
+  const editingFixedPayment = editing?.category_type === "fixed";
 
   function openCreate() {
     setEditing(null);
@@ -101,7 +102,7 @@ export default function Expenses() {
   async function save() {
     if (!form.category_id) return setFormError("Please choose a variable spending category");
     const selectedCat = categories.find((c) => String(c.id) === String(form.category_id));
-    if (selectedCat && selectedCat.type === "fixed") {
+    if (selectedCat && selectedCat.type === "fixed" && !editingFixedPayment) {
       return setFormError(
         "Only variable spending can be added here. Fixed commitments (Rent, EMI, Insurance) must be recorded in the Fixed Commitments tab."
       );
@@ -376,12 +377,13 @@ export default function Expenses() {
           )}
           <Input
             as="select"
-            label="Category (Variable Spending Only)"
+            label={editingFixedPayment ? "Fixed Commitment" : "Category (Variable Spending Only)"}
+            disabled={editingFixedPayment}
             value={form.category_id}
             onChange={(e) => setForm({ ...form, category_id: e.target.value })}
           >
-            <option value="">Select a variable category</option>
-            {variableCategories.map((c) => (
+            {!editingFixedPayment && <option value="">Select a variable category</option>}
+            {(editingFixedPayment ? categories.filter(c => String(c.id) === String(editing.category_id)) : variableCategories).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

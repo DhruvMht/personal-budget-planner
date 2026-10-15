@@ -129,8 +129,8 @@ async function summary(req, res, next) {
       rawGoals,
       investmentStats,
       investmentDistribution,
-      allIncomeRows,
-      allExpenseRows,
+      lifetimeIncome,
+      lifetimeExpenses,
       reminders,
     ] = await Promise.all([
       Income.totalForMonth(userId, month),
@@ -140,8 +140,8 @@ async function summary(req, res, next) {
       Goal.findAllByUser(userId),
       Investment.allTimeStats(userId),
       Investment.totalsByType(userId, month),
-      Income.monthlyTotals(userId, 60),
-      Expense.monthlyTotals(userId, 60),
+      Income.allTimeTotal(userId),
+      Expense.allTimeTotal(userId),
       BillReminder.findAllByUser(userId).catch(() => []),
     ]);
 
@@ -154,8 +154,6 @@ async function summary(req, res, next) {
     const goalSaved = round2(goals.reduce((s, g) => s + Number(g.saved_amount), 0));
 
     // Cumulative Savings calculation across all historical months
-    const lifetimeIncome = allIncomeRows.reduce((s, r) => s + Number(r.total), 0);
-    const lifetimeExpenses = allExpenseRows.reduce((s, r) => s + Number(r.total), 0);
     const allTimeCumulativeSavings = round2(lifetimeIncome - lifetimeExpenses);
 
     res.json({
@@ -204,7 +202,7 @@ async function monthlyTrend(req, res, next) {
       ...expenseRows.map((r) => r.month),
       ...investmentRows.map((r) => r.month),
     ]);
-    const months = Array.from(monthSet).sort();
+    const months = Array.from(monthSet).sort().slice(-limit);
 
     const incMap = new Map(incomeRows.map((r) => [r.month, Number(r.total)]));
     const expMap = new Map(expenseRows.map((r) => [r.month, Number(r.total)]));

@@ -13,6 +13,8 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   decimalNumbers: true,
+  // Calendar dates must not shift timezone or become invalid when editing another field.
+  dateStrings: ["DATE"],
 });
 
 async function testConnection() {

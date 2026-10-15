@@ -124,11 +124,13 @@ export default function Reports() {
         <div className="flex items-center gap-2.5">
           <input
             type="month"
+            aria-label="Report month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
             className="field w-auto font-medium"
           />
           <select
+            aria-label="Report range"
             value={range}
             onChange={(e) => setRange(Number(e.target.value))}
             className="field w-auto font-medium"

@@ -1,5 +1,6 @@
 const Income = require("../models/Income");
 const { round2 } = require("../utils/budgetCalculator");
+const { validateSchema, rejectValidation } = require("../validation/validate");
 
 function currentMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -30,11 +31,14 @@ async function update(req, res, next) {
   try {
     const current = await Income.findById(req.params.id, req.user.id);
     if (!current) return res.status(404).json({ message: "Income not found" });
-    const income = await Income.update(req.params.id, req.user.id, {
+    const payload = {
       source: (req.body.source ?? current.source).trim(),
       amount: Number(req.body.amount ?? current.amount),
       month: req.body.month ?? current.month,
-    });
+    };
+    const errors = validateSchema("income", payload);
+    if (errors.length) return rejectValidation(res, errors);
+    const income = await Income.update(req.params.id, req.user.id, payload);
     res.json({ income });
   } catch (err) { next(err); }
 }

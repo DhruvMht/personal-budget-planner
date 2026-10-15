@@ -11,13 +11,14 @@ const { generateToken } = require("../utils/generateToken");
  */
 async function register(req, res, next) {
   const { name, email, password } = req.body;
-  const conn = await pool.getConnection();
+  let conn;
   try {
-    const existing = await User.findByEmail(email);
+    const existing = await User.findByEmail(email.toLowerCase().trim());
     if (existing) return res.status(409).json({ message: "Email is already registered" });
 
     const hashed = await bcrypt.hash(password, 10);
 
+    conn = await pool.getConnection();
     await conn.beginTransaction();
     const [result] = await conn.execute(
       "INSERT INTO Users (name, email, password) VALUES (?, ?, ?)",
@@ -33,7 +34,7 @@ async function register(req, res, next) {
     try { await conn.rollback(); } catch (_) {}
     return next(err);
   } finally {
-    conn.release();
+    conn?.release();
   }
 }
 
@@ -76,7 +77,7 @@ async function updateProfile(req, res, next) {
 
     if (email !== current.email) {
       const clash = await User.findByEmail(email.toLowerCase().trim());
-      if (clash) return res.status(409).json({ message: "Email is already in use" });
+      if (clash && clash.id !== current.id) return res.status(409).json({ message: "Email is already in use" });
     }
 
     const user = await User.updateProfile(current.id, {

@@ -41,6 +41,7 @@ CREATE TABLE ExpenseCategory (
 
 -- 3. Incomes
 CREATE TABLE Income (
+  reminder_id INT NULL,
   id         INT AUTO_INCREMENT PRIMARY KEY,
   user_id    INT            NOT NULL,
   source     VARCHAR(100)   NOT NULL,   -- Salary, Freelance, Investments, Other
@@ -53,6 +54,7 @@ CREATE TABLE Income (
 
 -- 4. Expenses (Fixed Commitments & Variable Spending)
 CREATE TABLE Expenses (
+  reminder_id INT NULL,
   id           INT AUTO_INCREMENT PRIMARY KEY,
   user_id      INT            NOT NULL,
   category_id  INT            NOT NULL,
@@ -93,15 +95,20 @@ CREATE TABLE Goals (
 
 -- 7. Investments Portfolio
 CREATE TABLE Investments (
+  reminder_id INT NULL,
   id             INT AUTO_INCREMENT PRIMARY KEY,
   user_id        INT            NOT NULL,
-  name           VARCHAR(100)   NOT NULL,
+  name           VARCHAR(255)   NOT NULL,
   type           VARCHAR(50)    NOT NULL,
   amount         DECIMAL(12,2)  NOT NULL,
   current_value  DECIMAL(12,2)  NULL,
   date           DATE           NOT NULL,
   month          CHAR(7)        NOT NULL,
   notes          VARCHAR(255)   NULL,
+  market_provider VARCHAR(16)   NULL,
+  instrument_id  VARCHAR(80)    NULL,
+  units          DECIMAL(20,8)  NULL,
+  price_metadata JSON          NULL,
   CONSTRAINT fk_investment_user FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
   INDEX idx_investment_user_month (user_id, month),
   INDEX idx_investment_user_type (user_id, type)

@@ -3,6 +3,10 @@ const Expense = require("../models/Expense");
 const Income = require("../models/Income");
 const Investment = require("../models/Investment");
 const ExpenseCategory = require("../models/ExpenseCategory");
+const { pool } = require("../config/db");
+const { validateSchema, rejectValidation } = require("../validation/validate");
+const { calendarPayments } = require("../utils/calendarPayments");
+const { round2 } = require("../utils/budgetCalculator");
 
 function currentMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -25,22 +29,12 @@ async function getMonthCalendar(req, res, next) {
     const [reminders, expenses, incomes, investments] = await Promise.all([
       BillReminder.findAllByUser(req.user.id),
       Expense.findAllByUser(req.user.id, { month }),
-      Income.findAllByUser(req.user.id, { month }),
+      Income.findAllByUser(req.user.id, month),
       Investment.findAllByUser(req.user.id, { month }),
     ]);
 
-    // Map existing expenses by category_id and day
-    const expenseByCat = new Map();
-    for (const exp of expenses) {
-      const dateStr = exp.date instanceof Date
-        ? exp.date.toISOString().slice(0, 10)
-        : String(exp.date).slice(0, 10);
-      const day = parseInt(dateStr.slice(8, 10), 10);
-      if (!expenseByCat.has(exp.category_id)) {
-        expenseByCat.set(exp.category_id, []);
-      }
-      expenseByCat.get(exp.category_id).push(exp);
-    }
+    const activeReminders = reminders.filter(r => r.is_recurring || currentMonthForDate(r.created_at) === month);
+    const payments = calendarPayments(activeReminders, expenses, incomes, investments);
 
     // Process reminders into monthly calendar events
     let totalScheduled = 0;
@@ -55,38 +49,22 @@ async function getMonthCalendar(req, res, next) {
       dayEventsMap[d] = [];
     }
 
-    for (const r of reminders) {
+    for (const r of activeReminders) {
       const dueDay = Math.min(r.due_day, maxDays);
       const dayPad = String(dueDay).padStart(2, "0");
       const dueDate = `${month}-${dayPad}`;
 
-      totalScheduled += Number(r.amount);
+      totalScheduled = round2(totalScheduled + Number(r.amount));
 
-      // Check if this scheduled item has matching payment in expenses
-      let isPaid = false;
-      let matchedExpense = null;
-
-      if (r.category_id && expenseByCat.has(r.category_id)) {
-        const catExps = expenseByCat.get(r.category_id);
-        if (catExps && catExps.length > 0) {
-          isPaid = true;
-          matchedExpense = catExps[0];
-        }
-      } else if (r.type === "investment") {
-        const matchingInv = investments.find(
-          (inv) => inv.name.toLowerCase().includes(r.name.toLowerCase()) || r.name.toLowerCase().includes(inv.name.toLowerCase())
-        );
-        if (matchingInv) {
-          isPaid = true;
-        }
-      }
+      const payment = payments.get(r.id);
+      const isPaid = payment.paid >= Number(r.amount);
+      totalPaid = round2(totalPaid + payment.paid);
 
       const isOverdue = !isPaid && dueDate < todayStr;
       const isDueToday = !isPaid && dueDate === todayStr;
       const isUpcoming = !isPaid && dueDate > todayStr;
 
       if (isPaid) {
-        totalPaid += Number(r.amount);
         paidCount++;
       } else {
         pendingCount++;
@@ -105,7 +83,9 @@ async function getMonthCalendar(req, res, next) {
         is_recurring: r.is_recurring,
         notes: r.notes,
         status: isPaid ? "paid" : isOverdue ? "overdue" : isDueToday ? "due_today" : "upcoming",
-        matched_expense_id: matchedExpense?.id || null,
+        paid_amount: payment.paid,
+        remaining_amount: round2(Math.max(0, Number(r.amount) - payment.paid)),
+        matched_expense_id: payment.matchedExpense,
       };
 
       calendarEvents.push(event);
@@ -129,7 +109,7 @@ async function getMonthCalendar(req, res, next) {
       metrics: {
         total_scheduled: totalScheduled,
         total_paid: totalPaid,
-        total_pending: Math.max(0, totalScheduled - totalPaid),
+        total_pending: round2(Math.max(0, totalScheduled - totalPaid)),
         paid_count: paidCount,
         pending_count: pendingCount,
         overdue_count: overdueCount,
@@ -151,6 +131,9 @@ async function createReminder(req, res, next) {
       return res.status(400).json({ message: "Please provide valid name, amount, and due day (1-31)." });
     }
 
+    if (category_id && !(await ExpenseCategory.findById(category_id, req.user.id))) {
+      return res.status(400).json({ message: "Incorrect value: choose one of your own categories." });
+    }
     const reminder = await BillReminder.create(req.user.id, {
       name: name.trim(),
       amount: Number(amount),
@@ -172,7 +155,13 @@ async function updateReminder(req, res, next) {
     const reminder = await BillReminder.findById(req.params.id, req.user.id);
     if (!reminder) return res.status(404).json({ message: "Reminder not found" });
 
-    const updated = await BillReminder.update(req.params.id, req.user.id, req.body);
+    if (req.body.category_id && !(await ExpenseCategory.findById(req.body.category_id, req.user.id))) {
+      return res.status(400).json({ message: "Incorrect value: choose one of your own categories." });
+    }
+    const updated = await BillReminder.update(req.params.id, req.user.id, {
+      ...reminder, ...req.body,
+      name: req.body.name !== undefined ? req.body.name.trim() : reminder.name,
+    });
     res.json({ reminder: updated });
   } catch (err) {
     next(err);
@@ -190,15 +179,35 @@ async function deleteReminder(req, res, next) {
 }
 
 async function quickPay(req, res, next) {
+  let connection;
   try {
     const { reminder_id, amount, date, description, category_id, type } = req.body;
-    const reminder = await BillReminder.findById(reminder_id, req.user.id);
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [rows] = await connection.execute("SELECT * FROM BillReminders WHERE id = ? AND user_id = ? FOR UPDATE", [reminder_id, req.user.id]);
+    const reminder = rows[0];
     if (!reminder) return res.status(404).json({ message: "Reminder not found" });
+    if (type && type !== reminder.type) return res.status(400).json({ message: "Incorrect value: payment type must match the reminder." });
 
     const payDate = date || new Date().toISOString().slice(0, 10);
-    const payAmount = Number(amount || reminder.amount);
+    const payAmount = Number(amount ?? reminder.amount);
+    const month = payDate.slice(0, 7);
+    if (!reminder.is_recurring && currentMonthForDate(reminder.created_at) !== month) return res.status(400).json({ message: "Incorrect value: a one-time reminder can only be paid in its scheduled month." });
+    const table = reminder.type === "income" ? "Income" : reminder.type === "investment" ? "Investments" : "Expenses";
+    const monthColumn = table === "Expenses" ? "DATE_FORMAT(date, '%Y-%m')" : "month";
+    const [existing] = await connection.execute(`SELECT COALESCE(SUM(amount),0) total FROM ${table} WHERE user_id = ? AND reminder_id = ? AND ${monthColumn} = ?`, [req.user.id, reminder.id, month]);
+    if (Number(existing[0].total) >= Number(reminder.amount)) return res.status(409).json({ message: "This reminder has already been paid for that month." });
 
-    if (reminder.type === "investment" || type === "investment") {
+    if (reminder.type === "income") {
+      const payload = { source: reminder.name, amount: payAmount, month };
+      const errors = validateSchema("income", payload);
+      if (errors.length) return rejectValidation(res, errors);
+      const income = await Income.create(req.user.id, { ...payload, reminder_id: reminder.id }, connection);
+      await connection.commit();
+      return res.json({ message: "Income recorded successfully", income });
+    }
+
+    if (reminder.type === "investment") {
       const inv = await Investment.create(req.user.id, {
         name: reminder.name,
         type: "Mutual Funds / SIP",
@@ -206,7 +215,9 @@ async function quickPay(req, res, next) {
         current_value: payAmount,
         date: payDate,
         notes: description || `SIP payment for ${reminder.name}`,
-      });
+        reminder_id: reminder.id,
+      }, connection);
+      await connection.commit();
       return res.json({ message: "Investment recorded successfully", investment: inv });
     }
 
@@ -214,9 +225,9 @@ async function quickPay(req, res, next) {
     const catId = category_id || reminder.category_id;
     let targetCatId = catId;
 
-    if (!targetCatId) {
-      const defaultCats = await ExpenseCategory.findAllByUser(req.user.id);
-      targetCatId = defaultCats[0]?.id || 1;
+    const [categories] = await connection.execute("SELECT id FROM ExpenseCategory WHERE id = ? AND user_id = ?", [targetCatId || null, req.user.id]);
+    if (!categories.length) {
+      return res.status(400).json({ message: "Incorrect value: choose one of your own expense categories." });
     }
 
     const exp = await Expense.create(req.user.id, {
@@ -224,12 +235,21 @@ async function quickPay(req, res, next) {
       amount: payAmount,
       date: payDate,
       description: description || `${reminder.name} Payment`,
-    });
+      reminder_id: reminder.id,
+    }, connection);
+    await connection.commit();
 
     res.json({ message: "Bill marked as paid and logged into expenses", expense: exp });
   } catch (err) {
     next(err);
+  } finally {
+    if (connection) { await connection.rollback(); connection.release(); }
   }
+}
+
+function currentMonthForDate(value) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 module.exports = {

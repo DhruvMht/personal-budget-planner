@@ -193,7 +193,7 @@ export default function BillCalendar() {
   function openPayModal(event) {
     setPayTarget(event);
     setPayForm({
-      amount: String(event.amount),
+      amount: String(event.remaining_amount ?? event.amount),
       date: event.due_date,
       description: `${event.name} Payment`,
     });
@@ -252,7 +252,7 @@ export default function BillCalendar() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Month Controls */}
           <div className="flex items-center rounded-xl border border-slate-200 bg-white shadow-subtle dark:border-slate-800 dark:bg-slate-900">
             <button

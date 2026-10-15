@@ -34,7 +34,7 @@ export default function ExpenseCard({ expense, currency, onEdit, onDelete }) {
   const isFixed = expense.category_type === "fixed";
 
   return (
-    <div className="group relative flex items-center justify-between rounded-xl border border-slate-100 bg-white p-4 transition-all duration-150 hover:border-slate-200 hover:bg-slate-50/70 hover:shadow-subtle dark:border-slate-800/60 dark:bg-slate-900/60 dark:hover:border-slate-700 dark:hover:bg-slate-800/40">
+    <div className="group relative flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center justify-between rounded-xl border border-slate-100 bg-white p-4 transition-all duration-150 hover:border-slate-200 hover:bg-slate-50/70 hover:shadow-subtle dark:border-slate-800/60 dark:bg-slate-900/60 dark:hover:border-slate-700 dark:hover:bg-slate-800/40">
       {/* Left: Category Icon + Details */}
       <div className="flex items-center gap-3.5 min-w-0">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600 transition-transform duration-200 group-hover:scale-105 dark:bg-rose-950/50 dark:text-rose-400">
@@ -63,7 +63,7 @@ export default function ExpenseCard({ expense, currency, onEdit, onDelete }) {
       </div>
 
       {/* Right: Amount + Hover Actions */}
-      <div className="flex items-center gap-4 text-right">
+      <div className="flex shrink-0 items-center justify-between gap-4 text-right">
         <div>
           <p className="text-base font-bold tabular-nums text-rose-600 dark:text-rose-400">
             −{formatCurrency(expense.amount, currency)}

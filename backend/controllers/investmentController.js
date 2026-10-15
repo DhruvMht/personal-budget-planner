@@ -1,6 +1,33 @@
 const Investment = require("../models/Investment");
 const { round2 } = require("../utils/budgetCalculator");
-const { autoValuateInvestment } = require("../services/priceScraperService");
+const { refreshHolding, refreshPortfolio } = require("../services/investmentPriceRefresh");
+const { withPriceStatus } = require("../utils/investmentPriceStatus");
+const { searchInstruments, getQuote, validateMarketSelection } = require("../services/marketInstrumentService");
+const { calculateInvestment } = require("../utils/investmentCalculator");
+const { MANUAL_CATALOG, manualSuggestions } = require("../services/investmentCatalog");
+
+async function getInstrumentQuote(req, res, next) {
+  try {
+    res.json({ quote: await getQuote(req.query.provider, req.query.instrument_id) });
+  } catch (err) { next(err); }
+}
+
+function calculate(req, res, next) {
+  try {
+    res.json(calculateInvestment(req.body));
+  } catch (err) { next(err); }
+}
+
+async function searchMarket(req, res, next) {
+  try {
+    let results = await searchInstruments(req.query.type, req.query.q);
+    if (Object.hasOwn(MANUAL_CATALOG, req.query.type)) {
+      const saved = await Investment.findAllByUser(req.user.id, { type: req.query.type, search: req.query.q });
+      results = manualSuggestions(req.query.type, req.query.q, saved.map(item => item.name));
+    }
+    res.json({ results });
+  } catch (err) { next(err); }
+}
 
 function currentMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -11,10 +38,10 @@ async function list(req, res, next) {
     const { month, type, search } = req.query;
     const items = await Investment.findAllByUser(req.user.id, { month, type, search });
     const total = round2(items.reduce((s, i) => s + Number(i.amount), 0));
-    const totalValue = round2(items.reduce((s, i) => s + Number(i.current_value || i.amount), 0));
+    const totalValue = round2(items.reduce((s, i) => s + Number(i.current_value ?? i.amount), 0));
 
     res.json({
-      investments: items,
+      investments: items.map(item => withPriceStatus(item)),
       total,
       total_current_value: totalValue,
       total_gain: round2(totalValue - total),
@@ -68,14 +95,17 @@ async function create(req, res, next) {
       return res.status(400).json({ message: "Amount must be a positive number" });
     }
 
+    const selection = await validateMarketSelection(type || "Mutual Funds / SIP", req.body, req.user.currency);
+
     const item = await Investment.create(req.user.id, {
       name: name.trim(),
       type: type || "Mutual Funds / SIP",
       amount: round2(numAmount),
-      current_value: current_value ? round2(Number(current_value)) : round2(numAmount),
+      current_value: current_value != null ? round2(Number(current_value)) : round2(numAmount),
       date: String(date || new Date().toISOString()).slice(0, 10),
       month: String(date || new Date().toISOString()).slice(0, 7),
       notes: notes ? notes.trim() : null,
+      ...selection,
     });
 
     res.status(201).json({ investment: item });
@@ -105,6 +135,13 @@ async function update(req, res, next) {
       return res.status(400).json({ message: "Amount must be a positive number" });
     }
 
+    // Missing fields preserve a link; explicit nulls remove it for manual tracking.
+    const selection = await validateMarketSelection(type, {
+      market_provider: req.body.market_provider !== undefined ? req.body.market_provider : current.market_provider,
+      instrument_id: req.body.instrument_id !== undefined ? req.body.instrument_id : current.instrument_id,
+      units: req.body.units !== undefined ? req.body.units : current.units,
+    }, req.user.currency);
+
     const item = await Investment.update(req.params.id, req.user.id, {
       name,
       type,
@@ -113,6 +150,7 @@ async function update(req, res, next) {
       date,
       month: String(date).slice(0, 7),
       notes,
+      ...selection,
     });
 
     res.json({ investment: item });
@@ -126,31 +164,15 @@ async function syncAllPrices(req, res, next) {
     const { month } = req.query;
     const filter = month ? { month } : {};
     const investments = await Investment.findAllByUser(req.user.id, filter);
-    const updated = [];
-
-    for (const inv of investments) {
-      try {
-        const val = await autoValuateInvestment(inv);
-        if (val && typeof val.current_value === "number" && !isNaN(val.current_value)) {
-          const newCurrentVal = round2(val.current_value);
-          await Investment.updateCurrentValue(inv.id, req.user.id, newCurrentVal);
-          updated.push({
-            id: inv.id,
-            name: inv.name,
-            old_value: round2(Number(inv.current_value || inv.amount)),
-            new_value: newCurrentVal,
-            source: val.source,
-          });
-        }
-      } catch (e) {
-        console.error(`Failed to auto-sync price for investment ${inv.id} (${inv.name}):`, e.message);
-      }
+    if (req.user.currency !== "INR") {
+      return res.status(422).json({ message: "Automatic valuation requires an INR portfolio." });
     }
-
+    const result = await refreshPortfolio(investments, { automatic: req.query.automatic === "true" });
+    const portfolio = await Investment.allTimeStats(req.user.id);
     res.json({
-      message: `Successfully updated ${updated.length} investment valuation(s)`,
-      updated_count: updated.length,
-      updated,
+      message: `Updated ${result.updated.length} investment valuation(s). ${result.skipped.length} left unchanged.`,
+      ...result,
+      portfolio,
     });
   } catch (err) {
     next(err);
@@ -164,21 +186,15 @@ async function syncSinglePrice(req, res, next) {
       return res.status(404).json({ message: "Investment not found" });
     }
 
-    const val = await autoValuateInvestment(item);
-    if (val && typeof val.current_value === "number" && !isNaN(val.current_value)) {
-      const newCurrentVal = round2(val.current_value);
-      const updatedItem = await Investment.updateCurrentValue(item.id, req.user.id, newCurrentVal);
-      return res.json({
-        message: `Updated valuation for ${item.name} via ${val.source}`,
-        investment: updatedItem,
-        source: val.source,
-      });
+    if (item.market_provider && req.user.currency !== "INR") {
+      return res.status(422).json({ message: "Automatic valuation requires an INR portfolio." });
     }
-
+    const result = await refreshHolding(item);
+    const updatedItem = await Investment.findById(item.id, req.user.id);
     res.json({
-      message: "No live market price update available",
-      investment: item,
-      source: "Unchanged",
+      message: `Updated valuation for ${item.name} via ${result.source}`,
+      investment: updatedItem ? withPriceStatus(updatedItem) : null,
+      source: result.source,
     });
   } catch (err) {
     next(err);
@@ -197,4 +213,4 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, getSummary, create, update, remove, syncAllPrices, syncSinglePrice };
+module.exports = { list, getSummary, create, update, remove, syncAllPrices, syncSinglePrice, searchMarket, getInstrumentQuote, calculate };

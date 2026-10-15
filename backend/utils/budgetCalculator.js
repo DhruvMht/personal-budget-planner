@@ -12,6 +12,7 @@
  */
 
 const PRIORITY_WEIGHTS = { Low: 1, Medium: 2, High: 3, "Very High": 4 };
+const { allocateMoney } = require("./allocateMoney");
 
 const FIXED_INCOME_RATIOS = {
   emi: 0.20,        // 20% of monthly income (safe debt servicing ratio)
@@ -71,31 +72,26 @@ function allocateBudget(totalIncome, categories) {
     const recommended = getFixedRecommendedLimit(c.name, income, c.monthly_limit, c.spent);
     const required = Math.max(
       0,
-      Number(c.monthly_limit) > 0 ? Number(c.monthly_limit) : recommended
+      c.budget_id != null || Number(c.monthly_limit) > 0 ? Number(c.monthly_limit) : recommended
     );
     fixedRequiredTotal += required;
     return { category: c, recommended: required, raw_recommended: recommended };
   });
 
   // Fixed spend can never exceed income in the recommendation.
-  let scale = 1;
-  if (fixedRequiredTotal > income && fixedRequiredTotal > 0) {
-    scale = income / fixedRequiredTotal;
-  }
-  const scaledFixed = fixedAllocations.map((a) => ({
+  const fixedAmounts = allocateMoney(Math.min(income, fixedRequiredTotal), fixedAllocations.map(a => ({ weight: a.recommended, cap: a.recommended })));
+  const scaledFixed = fixedAllocations.map((a, index) => ({
     ...a,
-    recommended: round2(a.recommended * scale),
+    recommended: fixedAmounts[index],
   }));
   const fixedTotal = round2(scaledFixed.reduce((s, a) => s + a.recommended, 0));
 
   // Step 3 — discretionary remainder split by priority weight.
   const discretionary = Math.max(0, round2(income - fixedTotal));
-  const weightSum = variable.reduce((s, c) => s + priorityWeight(c.priority), 0);
-
-  const variableAllocations = variable.map((c) => {
+  const variableAmounts = allocateMoney(discretionary, variable.map(c => ({ weight: priorityWeight(c.priority) })));
+  const variableAllocations = variable.map((c, index) => {
     const weight = priorityWeight(c.priority);
-    const recommended =
-      weightSum > 0 ? round2((discretionary * weight) / weightSum) : 0;
+    const recommended = variableAmounts[index];
     return { category: c, recommended, weight };
   });
 
@@ -103,7 +99,7 @@ function allocateBudget(totalIncome, categories) {
     const spent = Math.max(0, Number(a.category.spent) || 0);
     const recommended = Math.max(0, a.recommended);
     const limit =
-      Number(a.category.monthly_limit) > 0
+      a.category.budget_id != null || Number(a.category.monthly_limit) > 0
         ? Number(a.category.monthly_limit)
         : recommended;
     const exceeded = spent > limit;
@@ -134,7 +130,7 @@ function allocateBudget(totalIncome, categories) {
     total_income: round2(income),
     fixed_required_total: fixedTotal,
     discretionary_remainder: discretionary,
-    total_recommended: Math.min(totalRecommended, round2(income)),
+    total_recommended: totalRecommended,
     weights: PRIORITY_WEIGHTS,
     allocations: rows,
   };

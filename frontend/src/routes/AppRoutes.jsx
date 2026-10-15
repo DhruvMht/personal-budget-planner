@@ -18,11 +18,16 @@ import Reports from "../pages/Reports";
 import Settings from "../pages/Settings";
 
 function ProtectedLayout({ children }) {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, sessionError } = useAuth();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (loading) return <Loader full label="Checking your session..." />;
+  if (sessionError) return <div role="alert" className="mx-auto mt-12 max-w-md rounded-xl border border-rose-200 bg-white p-6 text-slate-800">
+    <h1 className="text-lg font-semibold">Unable to connect to the server</h1>
+    <p className="mt-2 text-sm">{sessionError}</p>
+    <button type="button" className="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-white" onClick={() => window.location.reload()}>Retry connection</button>
+  </div>;
   if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
 
   return (
@@ -42,7 +47,7 @@ function ProtectedLayout({ children }) {
         <Sidebar open={sidebarOpen} onNavigate={() => setSidebarOpen(false)} />
         <main
           key={location.pathname}
-          className="flex-1 animate-fade-in-up p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full"
+          className="min-w-0 flex-1 animate-fade-in-up p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full"
         >
           {children}
         </main>

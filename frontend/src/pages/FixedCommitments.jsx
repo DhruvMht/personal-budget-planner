@@ -251,7 +251,7 @@ export default function FixedCommitments() {
   function openLimitModal(card) {
     setLimitTarget(card);
     setLimitForm({
-      monthly_limit: String(card.limit || card.algoBenchmarkAmount || ""),
+      monthly_limit: String(card.limit ?? card.algoBenchmarkAmount ?? ""),
       priority: card.allocation?.priority || "High",
     });
     setLimitError("");
@@ -259,6 +259,10 @@ export default function FixedCommitments() {
   }
 
   async function handleSaveLimit() {
+    if (String(limitForm.monthly_limit).trim() === "" || !Number.isFinite(Number(limitForm.monthly_limit))) {
+      setLimitError("Incorrect value: enter a valid monthly limit.");
+      return;
+    }
     if (Number(limitForm.monthly_limit) < 0) {
       return setLimitError("Limit cannot be negative.");
     }
@@ -342,7 +346,7 @@ export default function FixedCommitments() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <input
             type="month"
             value={month}

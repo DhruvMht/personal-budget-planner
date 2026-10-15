@@ -37,10 +37,11 @@ const Goal = {
   },
 
   async addContribution(id, userId, amount) {
-    await pool.execute(
-      "UPDATE Goals SET saved_amount = LEAST(target_amount, saved_amount + ?) WHERE id = ? AND user_id = ?",
-      [amount, id, userId]
+    const [result] = await pool.execute(
+      "UPDATE Goals SET saved_amount = saved_amount + ? WHERE id = ? AND user_id = ? AND saved_amount + ? <= target_amount",
+      [amount, id, userId, amount]
     );
+    if (!result.affectedRows) return null;
     return Goal.findById(id, userId);
   },
 

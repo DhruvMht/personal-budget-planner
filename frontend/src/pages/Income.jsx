@@ -83,6 +83,8 @@ export default function Income() {
     const source = form.source === "Custom" ? form.customSource.trim() : form.source;
     if (!source) return setFormError("Please enter an income source");
     if (!(Number(form.amount) > 0)) return setFormError("Amount must be greater than zero");
+    if (source.trim().toLowerCase() === "salary" && form.month > currentMonth())
+      return setFormError("Incorrect value: Salary month cannot be later than the current month and year.");
 
     setSaving(true);
     setFormError("");
@@ -287,6 +289,7 @@ export default function Income() {
             label="Period Month"
             name="month"
             type="month"
+            max={(form.source === "Custom" ? form.customSource : form.source).trim().toLowerCase() === "salary" ? currentMonth() : undefined}
             value={form.month}
             onChange={(e) => setForm({ ...form, month: e.target.value })}
           />

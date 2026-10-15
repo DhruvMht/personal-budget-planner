@@ -70,6 +70,7 @@ export default function Budgets() {
   }
 
   async function save() {
+    if (String(form.monthly_limit).trim() === "" || !Number.isFinite(Number(form.monthly_limit))) return setFormError("Incorrect value: enter a valid monthly limit.");
     if (Number(form.monthly_limit) < 0) return setFormError("Limit cannot be negative");
     setSaving(true);
     setFormError("");
@@ -143,7 +144,7 @@ export default function Budgets() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <input
             type="month"
             value={month}

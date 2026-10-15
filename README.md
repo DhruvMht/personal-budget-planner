@@ -23,7 +23,7 @@ other client — e.g. a React Native app later — gets the same complete behavi
 - **Income & Cash Flow Tracking:** Track primary salaries, freelance income, and secondary cash flows with monthly categorization.
 - **Fixed Commitments & Bill Calendar:** Schedule recurring bills (rent, EMIs, insurance, internet) with status toggles and overdue alerts.
 - **Variable Expenses & Smart Budget Limits:** Visual category progress bars, budget allocation algorithm based on priority weights (Low 1, Medium 2, High 3, Very High 4).
-- **Automated Multi-Asset Investment Portfolio:** 1-click live market price scraping for Mutual Funds/SIPs (AMFI NAVs), Indian & Global Equities (Yahoo Finance), Gold/SGB, Crypto (CoinGecko), PPF, EPF, and FDs.
+- **Investment Portfolio:** Search suggestions in every asset class, verified scheme selection for Indian mutual funds/SIPs and NSE/BSE stocks, and automatic conversion between invested amount and shares or units. Other assets support manual valuations.
 - **Interactive Analytics & Reporting:** Monthly visual trends, expense-to-income breakdown, asset allocation pie charts, savings rate, and exportable financial summaries.
 - **Modern Responsive UI:** Dark and light mode themes, skeleton loaders, and animated counter metrics.
 
@@ -78,6 +78,93 @@ npm run dev             # http://localhost:5173
 ```
 
 Run both together: two terminals, backend first (the frontend needs the API for login).
+
+## Investment price tracking
+
+For existing databases, run `npm run migrate:investments` from `backend` once before
+using investment search. This adds nullable instrument and unit fields and preserves
+existing investments. New databases include these fields in `database/schema.sql`.
+Also run `npm run migrate:prices` once to add nullable quote metadata for saved prices,
+publication dates and refresh failures. It preserves all existing purchase costs and valuations.
+Do not rerun the schema file on an existing database: it drops tables.
+
+For INR portfolios, stocks and mutual funds can be selected from provider search results.
+Choose the exact NSE/BSE listing or mutual fund plan. Its latest available price loads
+automatically. Enter shares/units to calculate invested amount, or enter amount to calculate
+quantity. The calculation price is editable for historical purchases; opening an existing
+holding preserves its saved cost. Amounts round to two decimals and quantities to eight.
+There is no separate current-value input: saving a linked investment calculates its
+current value from quantity × latest provider quote, independently of its purchase cost.
+New manual entries default to invested amount; editing them preserves their saved valuation.
+The backend validates and saves the Yahoo symbol or MFAPI scheme code. Older names are
+accepted only when there is one exact provider match. Refresh calculates units × latest available quote. Stock
+quotes may be delayed and fund NAVs are daily, not intraday prices.
+Click **Update all live values & ROI** to fetch prices for the entire portfolio across
+all purchase months, regardless of the visible filters. This single button saves
+quantity × price as each supported holding's value and recalculates ROI against its
+original cost. The result shows portfolio totals, updated holdings and reasons for
+unchanged holdings. Totals include those unchanged valuations when any updates fail.
+There are no per-holding refresh buttons, linking switches or background polling.
+The button is always visible; market updates are supported for INR portfolios.
+
+Each linked holding shows the source price, its publication date, unrealized gain/loss
+and percentage return. Refresh never changes invested amount. Provider failures preserve
+the last successful valuation and mark it outdated; a successful refresh clears that warning.
+Older published quotes are labelled separately from failed updates. Returns exclude fees,
+taxes, dividends and realized sale proceeds. Manual assets do not receive estimated market returns.
+
+Run `node scripts/qa-investment-prices.js` from `backend` for the price-refresh API and
+database checks with controlled provider fixtures. Set `PLAYWRIGHT_MODULE_PATH` and
+`QA_BROWSER_PATH` as described in the QA report to include the browser checks.
+
+Older stocks/funds with a saved quantity are identified automatically when their name
+or code matches exactly one provider result. Ambiguous names, missing quantities,
+unsupported assets and failed quotes retain their saved valuations with an explanation.
+Use Edit Investment to select the correct instrument or enter the actual quantity if
+needed; quantities are never inferred from historical cost during refresh.
+Other asset classes offer searchable
+common labels and the user's saved names. These are clearly marked manual suggestions,
+with an explicit custom-name option. Enable “Calculate using quantity and price” to use
+the same amount/quantity conversion with an entered unit price. Manual assets keep their
+saved valuation during market refresh; the previous guessed growth estimates are removed.
+
+Backend regression checks: run `npm test` from `backend`.
+
+For existing databases, run `npm run migrate:calendar` from `backend` to add nullable
+reminder references for calendar payments. This preserves existing transactions and
+enables accurate partial-payment tracking and duplicate-payment protection.
+
+Run `npm run test:integration` from `backend` for the disposable-account API checks.
+See [the QA report](docs/qa-report.md) for browser checks, coverage and known limits.
+
+## Validation demo in Settings
+
+Open **Settings → Validation Test Panel** while signed in. Select a form and
+edit its inputs, then click **Check input**. Fixed backend
+rules determine the result: **PASS** for valid input and **FAIL** for incorrect
+input, with field-specific reasons. There is no user-selected expected outcome.
+
+For example, enter `-500` as an investment amount. The panel shows **Incorrect
+value** and **Test FAIL** because investment amounts must be greater than zero.
+Change it to `500` with the remaining fields valid to see **Test PASS**.
+Click **Run all examples** to check the built-in valid, invalid and boundary
+cases together; expand a result to inspect its input and validation messages.
+Deliberately invalid examples show FAIL; these counts describe input validity.
+
+The panel uses the same backend input validators as the real API routes, covering
+investments, income, expenses, budgets, goals, contributions, bill reminders and
+payments, categories, profile settings, registration, login input and month filters.
+Rules cover required fields, numeric ranges and precision, valid dates, supported
+choices and relevant relationships between fields. Real submissions also check
+record ownership and existing data; goal contributions cannot exceed the target.
+Salary income allows only the current month or earlier, including when editing
+an existing record. Future months and years are rejected in the form and test panel.
+
+Panel checks do not save financial records or attempt a real login or market-data
+lookup. They test input validation, not credentials, network availability or every
+database-dependent operation. Use the normal forms to demonstrate those workflows.
+Password inputs are hidden in displayed test results. Rules and examples live in
+`backend/validation`; `npm test` in `backend` includes their regression checks.
 
 ## Budget allocation algorithm (backend/utils/budgetCalculator.js)
 

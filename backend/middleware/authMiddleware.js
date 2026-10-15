@@ -14,6 +14,7 @@ module.exports = async function authMiddleware(req, res, next) {
     req.user = user;
     next();
   } catch (err) {
+    if (!["JsonWebTokenError", "TokenExpiredError", "NotBeforeError"].includes(err.name)) return next(err);
     return res.status(401).json({ message: "Not authorized: invalid or expired token" });
   }
 };

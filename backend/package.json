@@ -5,7 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "migrate:investments": "node scripts/migrate-investment-instruments.js",
+    "migrate:prices": "node scripts/migrate-investment-prices.js",
+    "migrate:calendar": "node scripts/migrate-calendar-payments.js",
+    "test:integration": "node scripts/qa-local.js",
+    "test": "node --test"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

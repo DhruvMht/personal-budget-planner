@@ -18,6 +18,7 @@ import { getErrorMessage } from "../services/api";
 import { CURRENCIES } from "../utils/formatCurrency";
 import Button from "../components/common/Button";
 import Input from "../components/common/Input";
+import ValidationTestPanel from "../components/ValidationTestPanel";
 
 export default function Settings() {
   const { user, updateUser } = useAuth();
@@ -197,6 +198,7 @@ export default function Settings() {
       </form>
 
       {/* Default Categories Helper Card */}
+      <ValidationTestPanel />
       <div className="card flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">
