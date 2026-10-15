@@ -744,7 +744,7 @@ export default function BillCalendar() {
 
           <Input
             label="Notes / Payment Method (Optional)"
-            placeholder="e.g. Auto-debit from HDFC, Landlord UPI: landlord@upi"
+            placeholder="e.g. Automatic payment from HDFC"
             value={reminderForm.notes}
             onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })}
           />

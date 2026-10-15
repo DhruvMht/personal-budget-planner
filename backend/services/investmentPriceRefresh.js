@@ -1,12 +1,17 @@
 const Investment = require("../models/Investment");
 const market = require("./marketInstrumentService");
 const { quoteMetadata, isRefreshDue } = require("../utils/investmentPriceStatus");
+const { isEstimatedQuantity, quantityMetadata } = require("../utils/estimatedQuantity");
 const pending = new Map();
 
 async function identifyInstrument(item) {
+  if (isEstimatedQuantity(item)) throw Object.assign(new Error("Estimated units: saved value and ROI retained. Enter and confirm actual purchase details in Edit Investment before live pricing."), { status: 422 });
   const provider = { "Stocks / Equities": "yahoo", "Mutual Funds / SIP": "mfapi" }[item.type];
   if (!provider) throw Object.assign(new Error("No supported public live price for this asset. Its saved valuation is retained."), { status: 422 });
   if (!(Number(item.units) > 0)) throw Object.assign(new Error("Quantity is missing. Enter your actual shares or units in Edit Investment."), { status: 422 });
+  if (quantityMetadata(item)?.kind === "accepted" && (!item.market_provider || !item.instrument_id)) {
+    throw Object.assign(new Error("Select a stock or fund in Edit Investment to enable live pricing. Your saved quantity is ready to use."), { status: 422 });
+  }
   if (item.market_provider && item.instrument_id) {
     if (provider !== item.market_provider) throw Object.assign(new Error("The saved price source does not match the asset type. Correct the investment in Edit."), { status: 422 });
     return { provider, instrument_id: item.instrument_id };

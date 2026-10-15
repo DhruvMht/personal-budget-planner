@@ -203,3 +203,59 @@ Notification types: `budget_exceeded`, `budget_nearly_exhausted` (>= 80% used), 
 - **Remaining** (month level) = the same available balance as Savings.
 - **Remaining** (budget allocation view) = category `monthly_limit` − category `spent`.
 - Transfers between a user's own categories are not modelled as expenses.
+
+
+## Investments (protected)
+
+All paths below begin with `/api/investments` and require a bearer token.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/` | List own holdings, optional `month`, `type`, `search` filters |
+| GET | `/summary?month=YYYY-MM` | Monthly cost and all-time valuation/distribution |
+| GET | `/instruments?type=...&q=...` | Search instruments or manual asset suggestions |
+| GET | `/instruments/quote?provider=...&instrument_id=...` | Fetch a selected instrument quote |
+| POST | `/calculate` | Convert `{field: "amount" or "units", value, price}` |
+| POST | `/` | Create an investment |
+| PUT | `/:id` | Update an owned investment, including partial edits |
+| DELETE | `/:id` | Delete an owned investment |
+| POST | `/sync-prices` | Refresh all supported holdings across purchase months |
+| POST | `/:id/sync-price` | Refresh one owned holding |
+
+Purchase fields include `name`, `type`, `amount`, `units`, `purchase_price`, `date`, optional
+`notes` and `current_value`. `calculation_basis` selects `amount` or `units` as the authoritative
+input. For linked assets, `market_provider` and `instrument_id` identify the selected instrument.
+Money rounds to two places, units to eight, and purchase price stores up to twelve places.
+The save path recalculates conversions and rejects inconsistent pairs without a basis.
+Legacy amount-only records remain supported. Dates must not exceed today in Asia/Kolkata.
+
+`quantity_metadata` records provenance. Estimated records require positive actual purchase details
+and `confirm_actual_quantity: true` before market linking. Owner-accepted quantities retain their
+provenance and do not require repeated confirmation. An exact supported instrument is still required.
+Refresh updates market value/status without changing purchase cost, units or purchase price.
+Failed or unsupported updates retain saved values. Returns are unrealized and exclude fees,
+taxes, dividends and realized sale proceeds.
+
+## Bill calendar (protected)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/calendar?month=YYYY-MM` | Reminders and payment state for a month |
+| POST | `/api/calendar/reminders` | Create a recurring or one-time reminder |
+| PUT | `/api/calendar/reminders/:id` | Update an owned reminder |
+| DELETE | `/api/calendar/reminders/:id` | Delete an owned reminder |
+| POST | `/api/calendar/pay` | Record a payment linked to a reminder |
+
+The calendar tracks partial/overdue balances and rejects duplicate quick payment after a
+reminder is fully paid. Investment payments follow the same no-future-date rule as investment CRUD.
+
+## Validation demonstration (protected)
+
+- `GET /api/validation/catalog`: schemas, editable sample inputs and example cases.
+- `POST /api/validation/check`: `{schema, payload, partial?}` returns input acceptance and field errors.
+- `POST /api/validation/run`: evaluates the bundled examples.
+
+The panel uses API validators but does not persist records, verify credentials or replace
+ownership/market checks. Free-text fields accept Unicode letters, numbers and ordinary spaces.
+Passwords preserve special characters, emails use their own pattern, and instrument codes and
+provider-verified names retain their required formats. Example count: 125 as of 15 October 2026.

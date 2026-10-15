@@ -8,6 +8,8 @@
     "dev": "node --watch server.js",
     "migrate:investments": "node scripts/migrate-investment-instruments.js",
     "migrate:prices": "node scripts/migrate-investment-prices.js",
+    "migrate:purchase": "node scripts/migrate-investment-purchase.js",
+    "migrate:quantity-metadata": "node scripts/migrate-quantity-metadata.js",
     "migrate:calendar": "node scripts/migrate-calendar-payments.js",
     "test:integration": "node scripts/qa-local.js",
     "test": "node --test"

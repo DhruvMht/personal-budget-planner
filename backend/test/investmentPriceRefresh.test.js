@@ -7,6 +7,35 @@ const { isRefreshDue, withPriceStatus, quoteMetadata } = require("../utils/inves
 const item = { id: 1, user_id: 42, name: "Stock", type: "Stocks / Equities", market_provider: "yahoo", instrument_id: "TCS.NS", units: 10, amount: 1000, current_value: 1000 };
 const quote = { price: 120, as_of: new Date().toISOString(), source: "Test provider" };
 
+test("owner-accepted quantities drive future live value and ROI without another confirmation", async t => {
+  t.mock.method(market, "getQuote", async () => quote);
+  const saved = t.mock.method(Investment, "saveMarketPrice", async () => true);
+  const result = await refreshHolding({ ...item, quantity_metadata: { kind: "accepted", original_kind: "estimated" } });
+  assert.equal(result.new_value, 1200);
+  assert.equal(result.roi_percent, 20);
+  assert.equal(saved.mock.callCount(), 1);
+});
+
+test("accepted quantities without an instrument ask only for a pricing identity", async t => {
+  const search = t.mock.method(market, "searchInstruments", async () => []);
+  await assert.rejects(refreshHolding({ ...item, market_provider: null, instrument_id: null, quantity_metadata: { kind: "accepted" } }), /saved quantity is ready to use/);
+  assert.equal(search.mock.callCount(), 0);
+});
+
+test("estimated quantities never query a provider or replace saved valuations", async t => {
+  const search = t.mock.method(market, "searchInstruments", async () => []);
+  const price = t.mock.method(market, "getQuote", async () => quote);
+  const save = t.mock.method(Investment, "saveMarketPrice", async () => true);
+  for (const metadata of [{ kind: "estimated" }, JSON.stringify({ kind: "estimated" })]) {
+    const result = await refreshPortfolio([{ ...item, quantity_metadata: metadata }]);
+    assert.equal(result.updated_count, 0);
+    assert.match(result.skipped[0].reason, /Estimated units/);
+  }
+  assert.equal(search.mock.callCount(), 0);
+  assert.equal(price.mock.callCount(), 0);
+  assert.equal(save.mock.callCount(), 0);
+});
+
 test("refresh calculates profit from units and persists quote metadata without mutating purchase cost", async t => {
   t.mock.method(market, "getQuote", async () => quote);
   const saved = t.mock.method(Investment, "saveMarketPrice", async () => true);

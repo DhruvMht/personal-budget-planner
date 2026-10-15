@@ -30,6 +30,7 @@ import {
   Tooltip,
 } from "recharts";
 import useAuth from "../hooks/useAuth";
+import { currentDate } from "../utils/currentDate";
 import investmentService from "../services/investmentService";
 import { getErrorMessage } from "../services/api";
 import {
@@ -105,9 +106,11 @@ export default function Investments() {
     name: "",
     type: "Mutual Funds / SIP",
     amount: "",
-    date: toDateInput(new Date()),
+    date: currentDate(),
     notes: "",
     units: "",
+    purchase_price: "",
+    calculation_basis: "amount",
   });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -148,9 +151,12 @@ export default function Investments() {
       name: "",
       type: "Mutual Funds / SIP",
       amount: "",
-      date: toDateInput(new Date()),
+      date: currentDate(),
       notes: "",
       units: "",
+      purchase_price: "",
+      calculation_basis: "amount",
+      confirm_actual_quantity: false,
     });
     setFormError("");
     setModalOpen(true);
@@ -159,8 +165,8 @@ export default function Investments() {
   function openEdit(item) {
     setEditing(item);
     setCalculationBlocked(false);
-    setTrackMarket(currency === "INR");
-    setSelectedInstrument(currency === "INR" && ["Stocks / Equities", "Mutual Funds / SIP"].includes(item.type) && !item.instrument_id ? null : {
+    setTrackMarket(currency === "INR" && (Boolean(item.instrument_id) || !["estimated", "accepted"].includes(item.quantity_metadata?.kind)));
+    setSelectedInstrument(currency === "INR" && (Boolean(item.instrument_id) || !["estimated", "accepted"].includes(item.quantity_metadata?.kind)) && ["Stocks / Equities", "Mutual Funds / SIP"].includes(item.type) && !item.instrument_id ? null : {
       name: item.name, provider: item.market_provider, instrument_id: item.instrument_id,
     });
     setForm({
@@ -170,17 +176,22 @@ export default function Investments() {
       date: toDateInput(item.date),
       notes: item.notes || "",
       units: item.units ? String(item.units) : "",
+      purchase_price: item.purchase_price ? String(item.purchase_price) : "",
+      calculation_basis: "amount",
+      confirm_actual_quantity: false,
     });
     setFormError("");
     setModalOpen(true);
   }
 
   async function handleSave() {
+    if (!form.date) return setFormError("Investment date is required.");
+    if (form.date > currentDate()) return setFormError("Incorrect value: Investment date cannot be later than today.");
     if (calculationBlocked) return setFormError("Wait for the calculation, or enter a valid purchase price.");
     const linked = trackMarket && ["Mutual Funds / SIP", "Stocks / Equities"].includes(form.type);
     if (linked && !selectedInstrument?.instrument_id) return setFormError("Choose the exact stock or mutual fund from the search results.");
     if (!selectedInstrument) return setFormError("Choose a search suggestion or confirm a manual investment name.");
-    if (linked && !(Number(form.units) > 0)) return setFormError("Enter the number of shares or units you own.");
+    if (!(Number(form.units) > 0) || !(Number(form.purchase_price) > 0)) return setFormError("Enter a positive purchase price and an amount or quantity.");
     if (!form.name.trim()) return setFormError("Please enter an investment name");
     if (!(Number(form.amount) > 0)) return setFormError("Amount must be greater than zero");
 
@@ -196,6 +207,9 @@ export default function Investments() {
         market_provider: linked ? selectedInstrument.provider : null,
         instrument_id: linked ? selectedInstrument.instrument_id : null,
         units: form.units ? Number(form.units) : null,
+        purchase_price: form.purchase_price,
+        calculation_basis: form.calculation_basis,
+        confirm_actual_quantity: Boolean(form.confirm_actual_quantity),
       };
 
       if (editing) {
@@ -313,7 +327,7 @@ export default function Investments() {
             <p className="mt-1">One click checks your entire portfolio, fetches available market prices, and updates values and ROI across all purchase months.</p>
           </div>
         </div>
-        <p id="live-roi-requirements">{currency !== "INR" ? "Live valuation requires an INR portfolio." : "Stocks and mutual funds use their market prices. Anything without a supported price or sufficient details keeps its saved value, with the reason shown after the update. Filters do not limit this action."}</p>
+        <p id="live-roi-requirements">{currency !== "INR" ? "Live valuation requires an INR portfolio." : "Stocks and mutual funds use their market prices. Anything without a supported price or sufficient details keeps its saved value and is shown as unchanged. Filters do not limit this action."}</p>
         <p>Returns show unrealized gain or loss against your saved purchase cost, excluding fees, taxes and dividends.</p>
       </div>
 
@@ -333,7 +347,7 @@ export default function Investments() {
               {syncFeedback.source ? ` (${syncFeedback.source})` : ""}
               {syncFeedback.updated?.map(item => <span key={item.id} className="mt-1 block">{item.name}: {formatCurrency(item.new_value, currency)} · ROI {Number(item.roi_percent).toFixed(2)}%</span>)}
               {syncFeedback.skipped?.length > 0 && (
-                <span className="mt-2 block text-amber-800 dark:text-amber-300">Unchanged:{syncFeedback.skipped.map(item => <span key={item.id} className="mt-1 block">{item.name}: {item.reason}</span>)}</span>
+                <span className="mt-2 block text-amber-800 dark:text-amber-300">Unchanged:{syncFeedback.skipped.map(item => <span key={item.id} className="mt-1 block">{item.name}: Unchanged</span>)}</span>
               )}
             </span>
           </div>
@@ -635,18 +649,18 @@ export default function Investments() {
                     key={inv.id}
                     role="group"
                     aria-label={`Investment ${inv.name}`}
-                    className="flex flex-wrap items-center justify-between gap-4 py-3.5 px-2 rounded-xl transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
+                    className="grid min-w-0 grid-cols-1 items-center gap-4 rounded-xl px-3 py-4 transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40 xl:grid-cols-[minmax(0,1fr)_28rem]"
                   >
-                    <div className="flex max-w-full items-center gap-3.5 min-w-0">
+                    <div className="flex min-w-0 items-center gap-3.5">
                       <div
                         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm"
                         style={{ backgroundColor: color }}
                       >
                         <Icon className="h-5 w-5" />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-bold text-slate-900 dark:text-white">
+                          <p title={inv.name} className="max-w-full truncate text-sm font-bold text-slate-900 dark:text-white">
                             {inv.name}
                           </p>
                           <span className="badge text-[10px] bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
@@ -657,16 +671,27 @@ export default function Investments() {
                           <span>{formatDate(inv.date)}</span>
                           {inv.instrument_id ? (
                             <span className="text-emerald-600 dark:text-emerald-400">{inv.instrument_id} · {Number(inv.units)} {inv.type === "Stocks / Equities" ? "shares" : "units"}</span>
-                          ) : ["Mutual Funds / SIP", "Stocks / Equities"].includes(inv.type) && (
-                            <span>Market details will be checked when you update the portfolio</span>
+                          ) : inv.quantity_metadata?.kind !== "estimated" && ["Mutual Funds / SIP", "Stocks / Equities"].includes(inv.type) && (
+                            <span>Saved valuation</span>
                           )}
-                          {inv.notes && <span>• {inv.notes}</span>}
                         </div>
+                        {inv.notes && <p title={inv.notes} className="mt-1 truncate text-xs text-slate-400">{inv.notes}</p>}
+                        {Number(inv.units) > 0 && <p className="mt-1 break-words text-xs text-slate-500">
+                          {inv.quantity_metadata?.kind === "estimated" ? "Estimated quantity: " : "Quantity: "}
+                          {Number(inv.units) > 0 && <>{Number(inv.units)} {inv.quantity_metadata?.unit_label || (inv.type === "Stocks / Equities" ? "shares" : "units")}
+                            {Number(inv.purchase_price) > 0 && <> at {Number(inv.purchase_price).toLocaleString(undefined, { maximumFractionDigits: 4 })} {currency} {inv.quantity_metadata?.kind === "estimated" ? "implied cost" : "cost"} per unit</>}
+                          </>}
+                        </p>}
+                        {inv.quantity_metadata?.kind === "estimated" && <div className="mt-1 space-y-1 text-xs text-amber-600 dark:text-amber-300">
+                          <p>Reference: {inv.quantity_metadata.reference_label || "Assumed unit value"} — {Number(inv.quantity_metadata.reference_price).toLocaleString(undefined, { maximumFractionDigits: 4 })} {inv.quantity_metadata.currency} per unit{inv.quantity_metadata.reference_as_of && ` as of ${inv.quantity_metadata.reference_as_of}`}.</p>
+                          <p>{inv.quantity_metadata.note || "Estimated from the saved valuation; actual units are unverified."}</p>
+                          {inv.quantity_metadata.source_url && <a className="inline-block underline" href={inv.quantity_metadata.source_url} target="_blank" rel="noopener noreferrer">Reference source</a>}
+                        </div>}
                         <InvestmentPriceDetails investment={inv} connectionFailed={priceConnectionFailed} currency={currency} />
                       </div>
                     </div>
 
-                    <div className="flex max-w-full flex-wrap items-center gap-4 sm:gap-6">
+                    <div className="grid min-w-0 grid-cols-2 items-center gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                       <div className="text-right">
                         <p className="text-xs text-slate-400">Invested Amount</p>
                         <p className="text-sm font-bold tabular-nums text-slate-900 dark:text-white">
@@ -693,7 +718,7 @@ export default function Investments() {
                         )}
                       </div>
 
-                      <div className="flex max-w-full flex-wrap items-center gap-1.5">
+                      <div className="col-span-2 flex items-center justify-end gap-1.5 sm:col-span-1">
                         <button
                           onClick={() => openEdit(inv)}
                           title="Edit investment"
@@ -747,7 +772,7 @@ export default function Investments() {
             label="Asset Class / Option"
             value={form.type}
             onChange={(e) => {
-              setForm({ ...form, type: e.target.value, name: "", units: "" });
+              setForm({ ...form, type: e.target.value, name: "", units: "", purchase_price: "", calculation_basis: "amount" });
               setSelectedInstrument(null);
               setTrackMarket(currency === "INR");
               setFormError("");
@@ -765,6 +790,13 @@ export default function Investments() {
                 setForm(previous => ({ ...previous, name: instrument?.name || "" }));
                 setFormError("");
               }} />
+          {editing?.quantity_metadata?.kind === "estimated" && <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            This record has estimated units and an implied purchase price. Live pricing requires actual purchase details.
+            {!trackMarket && currency === "INR" && ["Stocks / Equities", "Mutual Funds / SIP"].includes(form.type) && <button type="button" className="mt-2 block font-semibold underline" onClick={() => { setTrackMarket(true); setSelectedInstrument(null); setForm(previous => ({ ...previous, confirm_actual_quantity: false })); }}>Choose verified stock or fund</button>}
+
+            <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={Boolean(form.confirm_actual_quantity)} onChange={event => setForm(previous => ({ ...previous, confirm_actual_quantity: event.target.checked }))} />I have entered my actual quantity and purchase price</label>
+          </div>}
+          {editing?.quantity_metadata?.kind === "accepted" && !trackMarket && currency === "INR" && ["Stocks / Equities", "Mutual Funds / SIP"].includes(form.type) && <button type="button" className="text-sm font-semibold text-teal-600 underline" onClick={() => { setTrackMarket(true); setSelectedInstrument(null); }}>Select instrument for live pricing</button>}
           <InvestmentAmounts key={`amounts:${editing?.id || "new"}:${form.type}:${trackMarket}`}
             form={form} setForm={setForm} editing={editing} selection={selectedInstrument}
             linked={trackMarket && ["Mutual Funds / SIP", "Stocks / Equities"].includes(form.type)}
@@ -773,13 +805,16 @@ export default function Investments() {
             id="investment-date"
             label="Investment Date"
             type="date"
+            required
+            max={currentDate()}
+            error={form.date > currentDate() ? "Investment date cannot be later than today." : ""}
             value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
           />
           <Input
             id="investment-notes"
             label="Notes / Folio (Optional)"
-            placeholder="e.g. Folio #12345, SIP date 5th, Demat account"
+            placeholder="e.g. Folio 12345"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
           />

@@ -779,7 +779,7 @@ export default function FixedCommitments() {
             label="Description / Notes"
             value={payForm.description}
             onChange={(e) => setPayForm({ ...payForm, description: e.target.value })}
-            placeholder="e.g. HDFC Auto-debit Reference #1234"
+            placeholder="e.g. HDFC Payment Reference 1234"
           />
         </div>
       </Modal>

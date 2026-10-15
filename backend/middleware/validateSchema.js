@@ -13,6 +13,7 @@ function commonFilters(req, res, next) {
     month: { label: "Month", type: "month", allowBlank: true },
     category_id: { label: "Category", type: "number", integer: true, min: 1, max: 2147483647, allowBlank: true },
     search: { label: "Search", type: "string", max: 255, allowBlank: true },
+    q: { label: "Investment search", type: "string", max: 100, allowBlank: true, characters: "instrumentSearch" },
     limit: { label: "Limit", type: "number", integer: true, min: 1, max: 120 },
   };
   const errors = validateFields(fields, req.query);

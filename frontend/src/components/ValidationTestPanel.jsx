@@ -62,7 +62,7 @@ export default function ValidationTestPanel() {
         <FlaskConical className="h-5 w-5 text-brand-600" />
         <h2 id="validation-panel-title" className="text-lg font-bold text-slate-900 dark:text-white">Validation Test Panel</h2>
       </div>
-      <p className="text-sm text-slate-600 dark:text-slate-300">Check input against the fixed validation rules used when saving data across the app.</p>
+      <p className="text-sm text-slate-600 dark:text-slate-300">Check input against the fixed validation rules used when saving data across the app. Free-text entries allow letters, numbers and spaces only. Passwords allow special characters; emails must follow the email format.</p>
       <p className="text-xs text-slate-500">PASS means valid input. FAIL means incorrect input, with the reason shown below. No records are saved.</p>
       {error && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950 dark:text-rose-200">{error} {!catalog && <button type="button" className="underline" onClick={() => setReload(n => n + 1)}>Retry loading</button>}</div>}
       {!catalog && !error && <p role="status" className="text-sm text-slate-500">Loading validation rules…</p>}
@@ -79,13 +79,14 @@ export default function ValidationTestPanel() {
               {fields.map(([field, rule]) => {
                 const fieldError = result?.errors.filter(item => item.field === field).map(item => item.message).join(" ");
                 return <div key={`${schema}:${field}`}>
-                  <Input label={`${rule.label} *`} type={rule.type === "password" ? "password" : "text"}
+                  <Input allowSpecialCharacters label={`${rule.label} *`} type={rule.type === "password" ? "password" : "text"}
                     value={String(values[field] ?? "")}
                     error={fieldError} autoComplete="off" placeholder={rule.type === "date" ? "YYYY-MM-DD" : rule.type === "month" ? "YYYY-MM" : undefined}
                     onChange={event => {
                       const value = rule.type === "boolean" && ["true", "false"].includes(event.target.value) ? event.target.value === "true" : event.target.value;
                       setValues(previous => ({ ...previous, [field]: value })); setResult(null);
                     }} />
+                  {rule.hint && <p className="mt-1 text-xs text-slate-500">{rule.hint}</p>}
                 </div>;
               })}
             </div>

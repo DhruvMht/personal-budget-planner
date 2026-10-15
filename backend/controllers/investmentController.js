@@ -4,6 +4,8 @@ const { refreshHolding, refreshPortfolio } = require("../services/investmentPric
 const { withPriceStatus } = require("../utils/investmentPriceStatus");
 const { searchInstruments, getQuote, validateMarketSelection } = require("../services/marketInstrumentService");
 const { calculateInvestment } = require("../utils/investmentCalculator");
+const { normalizePurchase } = require("../utils/investmentPurchase");
+const { isEstimatedQuantity, quantityMetadata } = require("../utils/estimatedQuantity");
 const { MANUAL_CATALOG, manualSuggestions } = require("../services/investmentCatalog");
 
 async function getInstrumentQuote(req, res, next) {
@@ -90,17 +92,19 @@ async function create(req, res, next) {
     if (!name || !name.trim()) {
       return res.status(400).json({ message: "Investment name is required" });
     }
-    const numAmount = Number(amount);
+    const purchase = normalizePurchase(req.body);
+    const numAmount = purchase.amount;
     if (!Number.isFinite(numAmount) || numAmount <= 0) {
       return res.status(400).json({ message: "Amount must be a positive number" });
     }
 
-    const selection = await validateMarketSelection(type || "Mutual Funds / SIP", req.body, req.user.currency);
+    const selection = await validateMarketSelection(type || "Mutual Funds / SIP", { ...req.body, units: purchase.units }, req.user.currency);
 
     const item = await Investment.create(req.user.id, {
       name: name.trim(),
       type: type || "Mutual Funds / SIP",
       amount: round2(numAmount),
+      purchase_price: purchase.purchase_price,
       current_value: current_value != null ? round2(Number(current_value)) : round2(numAmount),
       date: String(date || new Date().toISOString()).slice(0, 10),
       month: String(date || new Date().toISOString()).slice(0, 7),
@@ -123,8 +127,21 @@ async function update(req, res, next) {
 
     const name = req.body.name !== undefined ? req.body.name.trim() : current.name;
     const type = req.body.type || current.type;
-    const amount = req.body.amount !== undefined ? Number(req.body.amount) : Number(current.amount);
-    const currentValue = req.body.current_value !== undefined ? Number(req.body.current_value) : Number(current.current_value);
+    const purchase = normalizePurchase(req.body, current);
+    const estimated = isEstimatedQuantity(current);
+    const confirmed = req.body.confirm_actual_quantity === true;
+    const provider = req.body.market_provider !== undefined ? req.body.market_provider : current.market_provider;
+    if (estimated && provider && !confirmed) return res.status(400).json({ message: "Enter and confirm actual purchase details before linking estimated units to a market price." });
+    if (estimated && confirmed && (!(purchase.units > 0) || !(purchase.purchase_price > 0))) return res.status(400).json({ message: "Actual quantity and purchase price are required." });
+    const amount = purchase.amount;
+    let currentValue = req.body.current_value !== undefined ? Number(req.body.current_value) : Number(current.current_value);
+    // When a manually valued holding's quantity is corrected, retain its last
+    // unit valuation instead of comparing the old quantity's value to new cost.
+    if (req.body.current_value === undefined && type !== current.type) currentValue = amount;
+    else if (req.body.current_value === undefined && !estimated && !current.market_provider && Number(current.units) > 0 && purchase.units > 0) {
+      currentValue = round2(Number(current.current_value ?? current.amount) / Number(current.units) * purchase.units);
+      if (!Number.isFinite(currentValue) || currentValue >= 1e10) return res.status(400).json({ message: "The adjusted valuation is outside the supported range." });
+    }
     const date = req.body.date ? String(req.body.date).slice(0, 10) : current.date;
     const notes = req.body.notes !== undefined ? req.body.notes : current.notes;
 
@@ -139,14 +156,17 @@ async function update(req, res, next) {
     const selection = await validateMarketSelection(type, {
       market_provider: req.body.market_provider !== undefined ? req.body.market_provider : current.market_provider,
       instrument_id: req.body.instrument_id !== undefined ? req.body.instrument_id : current.instrument_id,
-      units: req.body.units !== undefined ? req.body.units : current.units,
+      units: purchase.units,
     }, req.user.currency);
 
     const item = await Investment.update(req.params.id, req.user.id, {
       name,
       type,
       amount: round2(amount),
+      purchase_price: purchase.purchase_price,
       current_value: Number.isFinite(currentValue) ? round2(currentValue) : round2(amount),
+      quantity_metadata: estimated && !confirmed ? quantityMetadata(current)
+        : quantityMetadata(current)?.kind === "accepted" && type === current.type ? quantityMetadata(current) : null,
       date,
       month: String(date).slice(0, 7),
       notes,

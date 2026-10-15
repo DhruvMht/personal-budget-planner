@@ -21,3 +21,10 @@ test("invalid, zero and out-of-range inputs never produce a saveable conversion"
   }
   assert.throws(() => calculateInvestment({ field: "amount", value: 0.01, price: 1e12 }), { status: 400 });
 });
+
+test("calculation rejects symbols and non-decimal strings in both price and quantity", () => {
+  for (const invalid of ["₹100", "100$", "1,000", "10%", "0x10", "1e3", "1/2", "<100>"]) {
+    assert.throws(() => calculateInvestment({ field: "units", value: invalid, price: 100 }), { status: 400 });
+    assert.throws(() => calculateInvestment({ field: "units", value: 1, price: invalid }), { status: 400 });
+  }
+});

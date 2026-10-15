@@ -24,7 +24,7 @@ and a React frontend, so the same API can later serve a mobile client.
 | Database | MySQL 8 accessed with the `mysql2` driver (raw parameterized SQL, no ORM) |
 | Security | bcrypt password hashing, JWT bearer tokens, CORS restricted to the client origin |
 
-No ORM, no Docker, no cloud services and no AI/ML components are used.
+The project uses parameterized SQL without an ORM. Supported market valuations use Yahoo stock quotes and MFAPI mutual-fund NAVs. Budget recommendations use deterministic rules.
 
 ## 4. System architecture
 
@@ -40,7 +40,7 @@ React (Vite, :5173)  --HTTP/JSON + JWT-->  Express REST API (:5000)  --mysql2-->
 
 ## 5. Database design
 
-Six tables, all referencing `Users(id)` with `ON DELETE CASCADE`:
+Eight tables. Financial records reference `Users(id)` with `ON DELETE CASCADE`:
 
 | Table | Key fields |
 | --- | --- |
@@ -50,6 +50,8 @@ Six tables, all referencing `Users(id)` with `ON DELETE CASCADE`:
 | Expenses | id, user_id, category_id, amount, date, description |
 | Budgets | id, user_id, category_id, monthly_limit, priority, unique per (user, category) |
 | Goals | id, user_id, goal_name, target_amount, saved_amount, deadline, priority |
+| Investments | id, user_id, amount, units, purchase_price, current_value, instrument_id, price_metadata, quantity_metadata |
+| BillReminders | id, user_id, category_id, name, amount, type, due_day, is_recurring |
 
 ## 6. Budget allocation algorithm
 
@@ -71,7 +73,7 @@ remainder 35,000, weight sum 8 → Food 13,125; Fuel 8,750; the other three 4,37
 `remaining = target − saved`, `progress% = saved ÷ target × 100`,
 `required monthly saving = remaining ÷ months until the deadline`, and the expected completion
 date is derived from the current monthly saving capacity (income − expenses for the month).
-Goal contribution suggestions split that capacity by goal priority weight.
+Goal contribution suggestions split that capacity by priority weight, cap each contribution at the remaining target and redistribute the balance. Remaining amount and progress are clamped, and date arithmetic handles month ends.
 
 ## 8. Security
 
@@ -92,5 +94,39 @@ access (401). The frontend production build compiles without errors.
 
 ## 10. Future scope
 
-React Native client on the same API, recurring transactions, CSV export, and multi-currency
-conversion rates.
+Bank imports, report exports, external calendar synchronization, a mobile client and currency conversion remain future work. Recurring reminders already exist.
+
+
+## 11. Investment and calendar workflows
+
+All eight asset types convert amount and units using a saved purchase price. Money has
+two decimal places, quantity eight, and purchase price up to twelve. The server recalculates
+on save and rejects inconsistent pairs without an authoritative calculation basis.
+Unrelated edits preserve known quantities. A quantity or purchase-price edit can change cost.
+
+Live refresh supports exact Indian stock and mutual-fund instruments in INR portfolios.
+It preserves purchase cost and quantity, updates current value and unrealized ROI, and retains
+the last value on failure. Missing legacy quantities remain unknown. Estimated quantities
+retain reference provenance and require actual-detail confirmation before linking. Owner-accepted
+quantities can be used without another confirmation, but acceptance is not external verification.
+
+The calendar combines recurring and one-time reminders with recorded payments. Partial payments
+leave a balance, overdue reminders generate alerts, and a fully paid reminder rejects duplicate
+quick payments. Investment dates cannot exceed the current day in Asia/Kolkata, including
+investment payments entered through the calendar.
+
+## 12. Validation and final verification
+
+Shared validators serve real API requests and the Settings Validation Test Panel. Free-text
+fields accept Unicode letters, numbers and ordinary spaces. Email, passwords and verified
+instrument codes use separate rules. The panel does not save records or verify ownership.
+
+On 15 October 2026, 68 regression tests and 24 API workflow groups passed. All 125 validation
+examples matched expectations (17 valid, 108 invalid). The production build and focused date/layout
+API and browser checks passed. Broader browser/provider results and limitations appear in
+[the QA report](qa-report.md).
+
+## Submission artifacts
+
+- [Full report with diagrams and application screenshots](Personal_Budget_Planner_Final_Project_Report.docx)
+- [Project presentation](Personal_Budget_Planner_Presentation.pptx)

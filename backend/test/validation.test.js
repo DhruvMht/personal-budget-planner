@@ -3,6 +3,81 @@ const assert = require("node:assert/strict");
 const { validateSchema, validateFields } = require("../validation/validate");
 const { validate } = require("../middleware/validateSchema");
 const { examples, samples } = require("../validation/examples");
+const { SCHEMAS } = require("../validation/schemas");
+const { commonFilters } = require("../middleware/validateSchema");
+
+test("investment dates allow today/past and reject future dates on create and edit for every asset class", () => {
+  for (const [now, today, tomorrow] of [
+    ["2026-10-15T06:00:00Z", "2026-10-15", "2026-10-16"],
+    ["2026-12-31T18:29:59Z", "2026-12-31", "2027-01-01"],
+    ["2026-12-31T18:30:00Z", "2027-01-01", "2027-01-02"],
+    ["2028-02-28T18:30:00Z", "2028-02-29", "2028-03-01"],
+  ]) {
+    for (const type of SCHEMAS.investment.fields.type.values) {
+      for (const partial of [false, true]) {
+        const options = { now: new Date(now), partial };
+        const body = partial ? {} : { ...samples.investment, type };
+        for (const date of [today, "2024-02-29"]) assert.deepEqual(validateSchema("investment", { ...body, date }, options), []);
+        const errors = validateSchema("investment", { ...body, date: tomorrow }, options);
+        assert.ok(errors.some(error => error.field === "date" && /later than today/.test(error.message)));
+      }
+    }
+  }
+});
+
+test("all free-text fields reject punctuation, markup, emoji and invisible characters on create and edit", () => {
+  const invalid = ["Name@", "Name#1", "Name!", "Name-1", "Name_1", "Name's", "Name & Co", "<script>alert(1)</script>", "Name\\path", "Name/1", "Name.1", "Name,1", "Name🙂", "Name\u200b", "Name\u202e", "Name\n", "Name\t", "Name\0", "Name\u00a0"];
+  for (const [schema, { fields }] of Object.entries(SCHEMAS)) {
+    for (const [field, rule] of Object.entries(fields)) {
+      if (rule.characters !== "plain") continue;
+      for (const value of invalid) {
+        for (const partial of [false, true]) {
+          assert.ok(validateSchema(schema, { ...samples[schema], [field]: value }, { partial }).some(e => e.field === field), `${schema}.${field}: ${JSON.stringify(value)}`);
+        }
+      }
+      for (const value of ["Valid name 123", "ध्रुव १२३", "José 123"]) {
+        assert.equal(validateSchema(schema, { ...samples[schema], [field]: value }).some(e => e.field === field), false, `${schema}.${field}: ${value}`);
+      }
+    }
+  }
+});
+
+test("password symbols remain valid and are not changed", () => {
+  const password = "Aa!@#$%^&*()_+-=[]{};:'\",.<>/?\\|`~123";
+  for (const schema of ["registration", "login", "profile"]) {
+    const payload = { ...samples[schema], password };
+    assert.deepEqual(validateSchema(schema, payload), []);
+    assert.equal(payload.password, password);
+  }
+});
+
+test("the fixed email pattern accepts email punctuation and rejects malformed local parts and domains", () => {
+  for (const schema of ["registration", "login", "profile"]) {
+    for (const email of ["demo.user+tag@example.com", "o'connor@sub.example.co.in", "user_name@example-domain.com", " Demo@Example.com "]) {
+      assert.deepEqual(validateSchema(schema, { ...samples[schema], email }), [], email);
+    }
+    for (const email of ["a..b@example.com", ".ab@example.com", "ab.@example.com", "a@-example.com", "a@example-.com", "a@exam_ple.com", "a@exam!ple.com", "a@@example.com", "<a>@example.com", "a@localhost", "a@example.com\n", "a b@example.com", "a".repeat(65) + "@example.com"]) {
+      assert.ok(validateSchema(schema, { ...samples[schema], email }).some(e => e.field === "email"), email);
+    }
+  }
+});
+
+test("searches reject punctuation while exact stock codes keep their required format", () => {
+  for (const [query, accepted] of [[{ search: "Rent 2026" }, true], [{ search: "Rent%" }, false], [{ q: "Tata" }, true], [{ q: "M&M.NS" }, true], [{ q: "Tata@" }, false]]) {
+    let called = false;
+    const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
+    commonFilters({ query }, res, () => { called = true; });
+    assert.equal(called, accepted);
+    if (!accepted) assert.equal(res.code, 400);
+  }
+});
+
+test("verified instrument names can contain provider punctuation but manual names cannot", () => {
+  const linked = { ...samples.investment, name: "Company & Co. (India)", market_provider: "yahoo", instrument_id: "M&M.NS", units: 1 };
+  assert.deepEqual(validateSchema("investment", linked), []);
+  assert.ok(validateSchema("investment", { ...linked, market_provider: null, instrument_id: null }).some(e => e.field === "name"));
+  assert.ok(validateSchema("investment", { ...linked, instrument_id: "M&M@.NS" }).some(e => e.field === "instrument_id"));
+});
 
 test("salary allows past/current months but rejects later months and years across year boundaries", () => {
   for (const [now, allowed, rejected] of [

@@ -1,6 +1,8 @@
 const { currentMonth } = require("./validate");
+const { SCHEMAS } = require("./schemas");
+const { currentDate } = require("../utils/currentDate");
 const samples = {
-  investment: { name: "Demo investment", type: "Stocks / Equities", amount: 5000, date: "2026-10-14" },
+  investment: { name: "Demo investment", type: "Stocks / Equities", amount: 5000, get date() { return currentDate(); } },
   income: { source: "Salary", amount: 50000, get month() { return currentMonth(); } },
   expense: { category_id: 1, amount: 250, date: "2026-10-14", description: "Demo expense" },
   budget: { category_id: 1, monthly_limit: 5000, priority: "Medium" },
@@ -15,6 +17,9 @@ const samples = {
   filters: { month: "2026-10" },
 };
 const examples = Object.entries(samples).map(([schema, payload]) => ({ id: `${schema}-valid`, schema, title: "Valid input", payload, expected: "accept" }));
+examples.push({ id: "investment-future-date", schema: "investment", title: "Reject an investment dated tomorrow", expected: "reject", errorField: "date",
+  get payload() { return { ...samples.investment, date: currentDate(new Date(Date.now() + 86400000)) }; },
+});
 function example(schema, suffix, title, changes, field) {
   examples.push({ id: `${schema}-${suffix}`, schema, title, payload: { ...samples[schema], ...changes }, expected: "reject", errorField: field });
 }
@@ -58,4 +63,20 @@ for (const [suffix, title, offset] of [["future-month", "Reject salary for next 
     },
   });
 }
+for (const [schema, definition] of Object.entries(SCHEMAS)) {
+  for (const [field, rule] of Object.entries(definition.fields)) {
+    if (rule.characters === "plain") {
+      example(schema, `symbols-${field}`, `Reject special characters in ${rule.label.toLowerCase()}`, { [field]: "Invalid @#$ value" }, field);
+    }
+    if (rule.type === "number") {
+      example(schema, `symbols-${field}`, `Reject special characters in ${rule.label.toLowerCase()}`, { [field]: "100$" }, field);
+    }
+    if (rule.type === "email") {
+      example(schema, "email-dots", "Reject repeated dots in email", { email: "demo..user@example.com" }, "email");
+      example(schema, "email-domain", "Reject invalid symbols in email domain", { email: "demo@exam!ple.com" }, "email");
+    }
+  }
+}
+examples.push({ id: "registration-password-symbols", schema: "registration", title: "Allow special characters in passwords", payload: { ...samples.registration, password: "Valid!@#$%^&*()_+-=[]{};:'\",.<>/?\\|`~123" }, expected: "accept" });
+examples.push({ id: "registration-email-plus", schema: "registration", title: "Allow a valid email with a plus tag", payload: { ...samples.registration, email: "demo.user+budget@example.com" }, expected: "accept" });
 module.exports = { samples, examples };

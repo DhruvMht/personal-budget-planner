@@ -3,14 +3,20 @@ const assert = require("node:assert/strict");
 const { MANUAL_CATALOG, manualSuggestions } = require("../services/investmentCatalog");
 const { searchInstruments } = require("../services/marketInstrumentService");
 const { autoValuateInvestment } = require("../services/priceScraperService");
+const { isPlainText } = require("../validation/characters");
+
+test("manual suggestions obey free-text rules and exclude invalid historical names", () => {
+  for (const entries of Object.values(MANUAL_CATALOG)) assert.ok(entries.every(item => isPlainText(item.name)));
+  assert.deepEqual(manualSuggestions("Other Investments", "custom", ["Custom@holding", "Custom holding"]).map(item => item.name), ["Custom holding"]);
+});
 
 test("every manually valued asset class offers matching partial-name suggestions", async () => {
   for (const [type, query, expected] of [
     ["Fixed Deposit / RD", "fix", "Bank Fixed Deposit"],
-    ["Gold / SGB", "sove", "Sovereign Gold Bond (SGB)"],
-    ["PPF / EPF / NPS", "prov", "Public Provident Fund (PPF)"],
+    ["Gold / SGB", "sove", "Sovereign Gold Bond SGB"],
+    ["PPF / EPF / NPS", "prov", "Public Provident Fund PPF"],
     ["Real Estate / REITs", "resi", "Residential Property"],
-    ["Cryptocurrency", "bit", "Bitcoin (BTC)"],
+    ["Cryptocurrency", "bit", "Bitcoin BTC"],
     ["Other Investments", "corp", "Corporate Bonds"],
   ]) {
     const matches = await searchInstruments(type, query);
@@ -21,9 +27,9 @@ test("every manually valued asset class offers matching partial-name suggestions
 });
 
 test("saved names are filtered by the query and deduplicated against common suggestions", () => {
-  const items = manualSuggestions("Cryptocurrency", "bit", ["Bitcoin (BTC)", "My Bitcoin Holding", "Unrelated"]);
+  const items = manualSuggestions("Cryptocurrency", "bit", ["Bitcoin BTC", "My Bitcoin Holding", "Unrelated"]);
   assert.equal(items.length, 2);
-  assert.equal(items[0].name, "Bitcoin (BTC)");
+  assert.equal(items[0].name, "Bitcoin BTC");
 });
 
 test("unknown labels do not produce an arbitrary suggestion", async () => {

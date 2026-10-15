@@ -78,7 +78,7 @@ async function main() {
     });
     await check("search, category and month filters", async () => {
       assert.equal((await api(`/expenses?month=${month}&category_id=${category.id}&search=edited`, "GET", undefined, a)).expenses.length, 1);
-      assert.equal((await api("/expenses?search=does-not-exist", "GET", undefined, a)).expenses.length, 0);
+      assert.equal((await api("/expenses?search=does%20not%20exist", "GET", undefined, a)).expenses.length, 0);
       assert.equal((await api("/investments?search=QA", "GET", undefined, a)).investments.length, 1);
       for (const route of ["/income?month=2026-13", "/reports/summary?month=invalid", "/expenses?category_id=-1", "/reports/monthly?limit=abc"]) await api(route, "GET", undefined, a, 400);
     });
@@ -188,6 +188,34 @@ async function main() {
           : await api(paths[item.schema], item.schema === "profile" ? "PUT" : "POST", item.payload, a, 400);
         assert.ok(response.fieldErrors?.some(error => error.field === item.errorField), item.id);
       }
+    });
+    await check("special-character edits and searches are rejected on live endpoints", async () => {
+      for (const [path, field] of [
+        [`/income/${income.id}`, "source"], [`/expenses/${expense.id}`, "description"],
+        [`/investments/${investment.id}`, "name"], [`/investments/${investment.id}`, "notes"],
+        [`/goals/${goal.id}`, "goal_name"], [`/categories/${category.id}`, "name"],
+        [`/calendar/reminders/${reminder.id}`, "name"], [`/calendar/reminders/${reminder.id}`, "notes"],
+        ["/auth/profile", "name"],
+      ]) {
+        const result = await api(path, "PUT", { [field]: "Invalid @#$ value" }, a, 400);
+        assert.ok(result.fieldErrors.some(error => error.field === field), `${path}.${field}`);
+      }
+      assert.equal((await api("/investments", "GET", undefined, a)).investments.find(item => item.id === investment.id).name, "QA deposit");
+      for (const route of ["/income", "/expenses", "/investments", "/goals", "/calendar", "/reports/summary"]) {
+        await api(`${route}?search=${encodeURIComponent("Name@")}`, "GET", undefined, a, 400);
+      }
+      await api("/investments/instruments?type=Stocks%20%2F%20Equities&q=Tata%40", "GET", undefined, a, 400);
+      for (const value of ["100$", "0x10", "1e3"]) await api("/investments/calculate", "POST", { field: "units", value, price: 100 }, a, 400);
+    });
+    await check("symbol-rich passwords and plus-tag emails work through registration, login and profile edits", async () => {
+      const password = "Valid!@#$%^&*()_+-=[]{};:'\",.<>/?\\|`~123";
+      const email = `qa.symbols+${Date.now()}@example.invalid`;
+      const session = await api("/auth/register", "POST", { name: "Symbols QA", email, password }, null, 201);
+      users.push(session.user.id);
+      await api("/auth/login", "POST", { email, password });
+      await api("/auth/profile", "PUT", { password: password + "!" }, session);
+      await api("/auth/login", "POST", { email, password: password + "!" });
+      await api("/auth/profile", "PUT", { email: "invalid..email@example.com" }, session, 400);
     });
     await check("delete financial records and confirm persistence", async () => {
       for (const [route, id] of [["income", income.id], ["expenses", expense.id], ["investments", investment.id], ["budgets", budget.id], ["goals", goal.id]]) {

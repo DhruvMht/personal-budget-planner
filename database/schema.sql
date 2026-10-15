@@ -108,6 +108,8 @@ CREATE TABLE Investments (
   market_provider VARCHAR(16)   NULL,
   instrument_id  VARCHAR(80)    NULL,
   units          DECIMAL(20,8)  NULL,
+  purchase_price DECIMAL(24,12) NULL,
+  quantity_metadata JSON       NULL,
   price_metadata JSON          NULL,
   CONSTRAINT fk_investment_user FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
   INDEX idx_investment_user_month (user_id, month),

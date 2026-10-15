@@ -3,6 +3,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || "playwright")
 const assert = require("node:assert/strict");
 const { pool } = require("../config/db");
 const { currentMonth } = require("../validation/validate");
+const { examples } = require("../validation/examples");
 
 async function main() {
   const email = `qa-browser-${Date.now()}@example.invalid`;
@@ -26,6 +27,9 @@ async function main() {
   try {
     await page.goto(origin + "/goals"); await page.waitForURL("**/login");
     await page.goto(origin + "/register");
+    await page.getByLabel("Full Name", { exact: true }).fill("Browser@QA");
+    await page.getByText("Incorrect value: only letters, numbers and spaces are allowed.", { exact: true }).waitFor();
+    assert.equal(await page.getByLabel("Full Name", { exact: true }).evaluate(node => node.checkValidity()), false);
     await page.getByLabel("Full Name", { exact: true }).fill("Browser QA");
     await page.getByLabel("Email Address", { exact: true }).fill(email);
     await page.getByLabel("Password", { exact: true }).fill("ValidPass123!");
@@ -36,6 +40,26 @@ async function main() {
     await page.getByRole("button", { name: "Create Account", exact: true }).click();
     await page.waitForURL(origin + "/");
     console.log("PASS registration, password mismatch and protected routes");
+    await check("special characters show an error and cannot be saved in income or expense text", async () => {
+      await go("/income"); await page.getByRole("button", { name: "Add Income", exact: true }).click();
+      let modal = page.getByRole("dialog");
+      await modal.getByLabel("Income Source", { exact: true }).selectOption("Custom");
+      await modal.getByLabel("Custom Source Name", { exact: true }).fill("Freelance@work");
+      await modal.getByLabel("Amount", { exact: true }).fill("100");
+      let rejected = page.waitForResponse(r => r.url().endsWith("/income") && r.request().method() === "POST" && r.status() === 400);
+      await modal.getByRole("button", { name: "Save Income", exact: true }).click(); await rejected;
+      await modal.getByText(/Income source can contain only letters/).waitFor();
+      await modal.getByRole("button", { name: "Cancel", exact: true }).click();
+      await go("/expenses"); await page.getByRole("button", { name: "Add Expense", exact: true }).first().click();
+      modal = page.getByRole("dialog");
+      await modal.getByLabel("Category (Variable Spending Only)", { exact: true }).selectOption({ label: "Food" });
+      await modal.getByLabel("Amount", { exact: true }).fill("100");
+      await modal.getByLabel("Description / Merchant").fill("Food@shop");
+      rejected = page.waitForResponse(r => r.url().endsWith("/expenses") && r.request().method() === "POST" && r.status() === 400);
+      await modal.getByRole("button", { name: "Save Expense", exact: true }).click(); await rejected;
+      await modal.getByText(/Description can contain only letters/).waitFor();
+      await modal.getByRole("button", { name: "Cancel", exact: true }).click();
+    });
     await check("income validation, create, edit and persistence", async () => {
       await go("/income"); await page.getByRole("button", { name: "Add Income", exact: true }).click();
       let modal = page.getByRole("dialog");
@@ -55,7 +79,7 @@ async function main() {
       await go("/expenses"); await page.getByRole("button", { name: "Add Expense", exact: true }).click();
       const modal = page.getByRole("dialog"); await modal.getByLabel("Category (Variable Spending Only)").selectOption({ label: "Food" });
       await modal.getByLabel("Amount", { exact: true }).fill("50"); await modal.getByLabel("Description / Merchant").fill("Browser groceries"); await save("Save Expense");
-      await page.getByLabel("Search", { exact: true }).fill("no-matching-expense"); await page.getByText("No expenses found", { exact: true }).waitFor();
+      await page.getByLabel("Search", { exact: true }).fill("no matching expense"); await page.getByText("No expenses found", { exact: true }).waitFor();
       await page.getByLabel("Search", { exact: true }).fill("Browser groceries"); await page.getByText("Browser groceries", { exact: true }).waitFor();
     });
     await check("goal create, contribution and over-contribution rejection", async () => {
@@ -72,7 +96,7 @@ async function main() {
       const modal = page.getByRole("dialog"); await modal.getByLabel("Asset Class / Option").selectOption("Gold / SGB");
       await modal.getByLabel("Search Gold / SGB", { exact: true }).fill("Browser gold");
       await modal.getByRole("button", { name: /Use .* as a manual investment/ }).click();
-      await modal.getByRole("checkbox", { name: "Calculate using quantity and price" }).check();
+      assert.equal(await modal.getByRole("checkbox", { name: "Calculate using quantity and price" }).count(), 0);
       await modal.getByLabel("Price per unit used for calculation").fill("100");
       await modal.getByLabel("Number of units", { exact: true }).fill("2");
       await page.waitForFunction(() => document.querySelector("#investment-amount")?.value === "200.00");
@@ -111,7 +135,15 @@ async function main() {
       assert.equal(await panel.getByRole("checkbox").count(), 0);
       await panel.getByLabel("Invested amount *", { exact: true }).fill("-100"); await panel.getByRole("button", { name: "Check input", exact: true }).click(); await panel.getByText("Test FAIL", { exact: true }).waitFor();
       await panel.getByLabel("Invested amount *", { exact: true }).fill("100"); await panel.getByRole("button", { name: "Check input", exact: true }).click(); await panel.getByText("Test PASS", { exact: true }).waitFor();
-      await panel.getByRole("button", { name: /Run all \d+ examples/ }).click(); await panel.getByRole("heading", { name: /86 checked/ }).waitFor();
+      await panel.getByLabel("Investment name *", { exact: true }).fill("Invalid@name");
+      await panel.getByRole("button", { name: "Check input", exact: true }).click(); await panel.getByText("Test FAIL", { exact: true }).waitFor();
+      await panel.getByLabel("Form to test").selectOption("registration");
+      await panel.getByLabel("Email *", { exact: true }).fill("bad..email@example.com");
+      await panel.getByRole("button", { name: "Check input", exact: true }).click(); await panel.getByText("Test FAIL", { exact: true }).waitFor();
+      await panel.getByLabel("Email *", { exact: true }).fill("valid.user+tag@example.com");
+      await panel.getByLabel("Password *", { exact: true }).fill("Valid!@#$%^&*()123");
+      await panel.getByRole("button", { name: "Check input", exact: true }).click(); await panel.getByText("Test PASS", { exact: true }).waitFor();
+      await panel.getByRole("button", { name: /Run all \d+ examples/ }).click(); await panel.getByRole("heading", { name: new RegExp(`${examples.length} checked`) }).waitFor();
     });
     await check("dashboard tabs, refresh and shortcut links", async () => {
       await go("/");
@@ -165,7 +197,7 @@ async function main() {
       const report = page.waitForResponse(r => r.url().includes("/reports/summary?month=2020-01") && r.status() === 200);
       await page.getByLabel("Report month", { exact: true }).fill("2020-01"); await report;
       await go("/investments"); await page.getByLabel("Asset Class", { exact: true }).selectOption("Gold / SGB");
-      await page.getByLabel("Search", { exact: true }).fill("no-match"); await page.getByRole("button", { name: "Reset Filters", exact: true }).click();
+      await page.getByLabel("Search", { exact: true }).fill("no match"); await page.getByRole("button", { name: "Reset Filters", exact: true }).click();
       assert.equal(await page.getByLabel("Search", { exact: true }).inputValue(), "");
       await page.getByText("Browser gold", { exact: true }).waitFor();
       assert.ok(await page.getByTitle("Update every investment in your portfolio using the latest available prices", { exact: true }).isVisible());

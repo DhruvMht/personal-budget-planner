@@ -1,5 +1,7 @@
 const { pool } = require("../config/db");
 const { metadataOf } = require("../utils/investmentPriceStatus");
+const { inferredPrice } = require("../utils/investmentPurchase");
+const { quantityMetadata } = require("../utils/estimatedQuantity");
 
 const INVESTMENT_TYPES = [
   "Mutual Funds / SIP",
@@ -33,30 +35,30 @@ const Investment = {
     }
 
     const [rows] = await pool.execute(
-      `SELECT id, user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, reminder_id, price_metadata
+      `SELECT id, user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, purchase_price, quantity_metadata, reminder_id, price_metadata
        FROM Investments
        WHERE ${conditions.join(" AND ")}
        ORDER BY date DESC, id DESC`,
       params
     );
-    return rows.map(row => ({ ...row, price_metadata: metadataOf(row) }));
+    return rows.map(row => ({ ...row, price_metadata: metadataOf(row), quantity_metadata: quantityMetadata(row) }));
   },
 
   async findById(id, userId, connection = pool) {
     const [rows] = await connection.execute(
-      `SELECT id, user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, price_metadata
+      `SELECT id, user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, purchase_price, quantity_metadata, price_metadata
        FROM Investments
        WHERE id = ? AND user_id = ? LIMIT 1`,
       [id, userId]
     );
-    return rows[0] ? { ...rows[0], price_metadata: metadataOf(rows[0]) } : null;
+    return rows[0] ? { ...rows[0], price_metadata: metadataOf(rows[0]), quantity_metadata: quantityMetadata(rows[0]) } : null;
   },
 
-  async create(userId, { name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, price_metadata = null, reminder_id = null }, connection = pool) {
+  async create(userId, { name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, purchase_price = inferredPrice(amount, units), price_metadata = null, reminder_id = null }, connection = pool) {
     const m = month || String(date).slice(0, 7);
     const [res] = await connection.execute(
-      `INSERT INTO Investments (user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, reminder_id, price_metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO Investments (user_id, name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, purchase_price, reminder_id, price_metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         name,
@@ -71,6 +73,7 @@ const Investment = {
         market_provider || null,
         instrument_id || null,
         units ?? null,
+        purchase_price,
         reminder_id,
         price_metadata ? JSON.stringify(price_metadata) : null,
       ]
@@ -78,11 +81,11 @@ const Investment = {
     return Investment.findById(res.insertId, userId, connection);
   },
 
-  async update(id, userId, { name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, price_metadata = null }) {
+  async update(id, userId, { name, type, amount, current_value, date, month, notes, market_provider, instrument_id, units, purchase_price = inferredPrice(amount, units), price_metadata = null, quantity_metadata = null }) {
     const m = month || String(date).slice(0, 7);
     await pool.execute(
       `UPDATE Investments
-       SET name = ?, type = ?, amount = ?, current_value = ?, date = ?, month = ?, notes = ?, market_provider = ?, instrument_id = ?, units = ?, price_metadata = ?
+       SET name = ?, type = ?, amount = ?, current_value = ?, date = ?, month = ?, notes = ?, market_provider = ?, instrument_id = ?, units = ?, purchase_price = ?, price_metadata = ?, quantity_metadata = ?
        WHERE id = ? AND user_id = ?`,
       [
         name,
@@ -97,7 +100,9 @@ const Investment = {
         market_provider || null,
         instrument_id || null,
         units ?? null,
+        purchase_price,
         price_metadata ? JSON.stringify(price_metadata) : null,
+        quantity_metadata ? JSON.stringify(quantity_metadata) : null,
         id,
         userId,
       ]
@@ -119,9 +124,9 @@ const Investment = {
   async saveMarketPrice(item, currentValue, metadata, instrument = { provider: item.market_provider, instrument_id: item.instrument_id }) {
     const [result] = await pool.execute(
       `UPDATE Investments SET current_value = ?, price_metadata = ?, market_provider = ?, instrument_id = ?
-       WHERE id = ? AND user_id = ? AND market_provider <=> ? AND instrument_id <=> ? AND units = ? AND name = ? AND type = ?`,
+       WHERE id = ? AND user_id = ? AND market_provider <=> ? AND instrument_id <=> ? AND units = ? AND name = ? AND type = ? AND amount = ? AND purchase_price <=> ?`,
       [currentValue, JSON.stringify(metadata), instrument.provider, instrument.instrument_id,
-        item.id, item.user_id, item.market_provider, item.instrument_id, item.units, item.name, item.type]
+        item.id, item.user_id, item.market_provider, item.instrument_id, item.units, item.name, item.type, item.amount, item.purchase_price ?? null]
     );
     return result.affectedRows > 0;
   },

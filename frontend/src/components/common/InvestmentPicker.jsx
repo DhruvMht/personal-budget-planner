@@ -12,6 +12,7 @@ export default function InvestmentPicker({ type, selection, onChange, allowManua
   const [retry, setRetry] = useState(0);
   const isFund = type === "Mutual Funds / SIP";
   const isStock = type === "Stocks / Equities";
+  const validManualName = /^[\p{L}\p{M}\p{N} ]+$/u.test(query) && /[\p{L}\p{N}]/u.test(query);
 
   useEffect(() => {
     setResults([]);
@@ -38,6 +39,7 @@ export default function InvestmentPicker({ type, selection, onChange, allowManua
   return (
     <div className="space-y-2">
       <Input
+        allowSpecialCharacters
         id="investment-instrument-search"
         label={isFund ? "Search mutual funds" : isStock ? "Search Indian stocks (NSE / BSE)" : `Search ${type}`}
         placeholder={isFund ? "Type 2+ letters of a fund name or scheme code" : isStock ? "Type 2+ letters, e.g. Reli, Tata, HDFC" : "Type 2+ letters to filter suggestions"}
@@ -78,7 +80,7 @@ export default function InvestmentPicker({ type, selection, onChange, allowManua
           ))}
         </ul>
       )}
-      {allowManual && !selection && query.trim().length >= 2 && (
+      {allowManual && !selection && query.trim().length >= 2 && validManualName && (
         <button type="button" className="text-sm text-brand-600 underline" onClick={() => onChange({ name: query.trim(), provider: null, instrument_id: null, manual: true })}>
           Use “{query.trim()}” as a manual investment
         </button>

@@ -1,6 +1,6 @@
 const PRIORITIES = ["Low", "Medium", "High", "Very High"];
 const ASSETS = ["Mutual Funds / SIP", "Stocks / Equities", "Fixed Deposit / RD", "Gold / SGB", "PPF / EPF / NPS", "Real Estate / REITs", "Cryptocurrency", "Other Investments"];
-const text = (label, max, required = true, min = 1) => ({ label, type: "string", required, min, max });
+const text = (label, max, required = true, min = 1) => ({ label, type: "string", required, min, max, characters: "plain", hint: "Letters, numbers and spaces only. No special characters." });
 const money = (label, required = true, min = 0.01) => ({ label, type: "number", required, min, max: 9999999999.99, decimals: 2 });
 const id = (label, required = true) => ({ label, type: "number", required, integer: true, min: 1, max: 2147483647 });
 const date = (label, required = true) => ({ label, type: "date", required });
@@ -11,10 +11,13 @@ const priority = choice("Priority", PRIORITIES);
 const SCHEMAS = {
   investment: { label: "Investments", fields: {
     name: text("Investment name", 255), type: choice("Asset class", ASSETS), amount: money("Invested amount"),
-    date: date("Investment date"), notes: note("Notes"),
+    date: { ...date("Investment date"), noFuture: true, hint: "Today or earlier (India Standard Time)." }, notes: note("Notes"),
     market_provider: { ...choice("Price provider", ["mfapi", "yahoo"], false), nullable: true },
-    instrument_id: { ...text("Instrument code", 80, false), nullable: true },
+    instrument_id: { label: "Instrument code", type: "string", max: 80, nullable: true, characters: "instrument" },
     units: { label: "Shares / units", type: "number", min: 0.00000001, max: 999999999999, decimals: 8, nullable: true },
+    purchase_price: { label: "Purchase price per unit", type: "number", min: 0.000000000001, max: 999999999999, decimals: 12 },
+    calculation_basis: choice("Calculate from", ["amount", "units"], false),
+    confirm_actual_quantity: { label: "Actual purchase details confirmed", type: "boolean" },
     current_value: money("Current value", false, 0), month,
   } },
   income: { label: "Income", fields: { source: text("Income source", 100), amount: money("Income amount"), month: { ...month, required: true } } },

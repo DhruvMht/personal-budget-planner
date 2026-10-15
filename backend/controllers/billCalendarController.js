@@ -7,6 +7,7 @@ const { pool } = require("../config/db");
 const { validateSchema, rejectValidation } = require("../validation/validate");
 const { calendarPayments } = require("../utils/calendarPayments");
 const { round2 } = require("../utils/budgetCalculator");
+const { currentDate } = require("../utils/currentDate");
 
 function currentMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -189,7 +190,11 @@ async function quickPay(req, res, next) {
     if (!reminder) return res.status(404).json({ message: "Reminder not found" });
     if (type && type !== reminder.type) return res.status(400).json({ message: "Incorrect value: payment type must match the reminder." });
 
-    const payDate = date || new Date().toISOString().slice(0, 10);
+    const payDate = date || currentDate();
+    if (reminder.type === "investment") {
+      const errors = validateSchema("investment", { date: payDate }, { partial: true });
+      if (errors.length) return rejectValidation(res, errors);
+    }
     const payAmount = Number(amount ?? reminder.amount);
     const month = payDate.slice(0, 7);
     if (!reminder.is_recurring && currentMonthForDate(reminder.created_at) !== month) return res.status(400).json({ message: "Incorrect value: a one-time reminder can only be paid in its scheduled month." });
